@@ -44,4 +44,11 @@
 ## Build Issues
 
 - [x] Increment version number to force Android update
-- [ ] Rebuild APK with new version
+- [x] Rebuild APK with new version
+
+## Critical Fixes Needed
+
+- [x] Fix exchange rate API - showing "No rate" for all cities
+- [x] Fix converter page "Invalid Date" bug
+- [x] Expand city list - add 100+ more major cities worldwide (now 110+ cities)
+- [x] Apply compact layout to converter page

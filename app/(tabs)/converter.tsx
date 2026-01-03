@@ -94,7 +94,7 @@ export default function ConverterScreen() {
         localTime: targetTime,
         formattedTime: formatTime(targetTime, settings.timeFormat),
         formattedDate: formatDate(targetTime, settings.dateFormat),
-        exchangeRate: exchangeRates?.rates[tz.currency] || null,
+        exchangeRate: (exchangeRates as any)?.[tz.currency] || null,
       };
     });
 
@@ -154,34 +154,87 @@ export default function ConverterScreen() {
   };
 
   const renderConvertedTimeCard = ({ item }: { item: ConvertedTime }) => (
-    <View className="bg-surface rounded-2xl p-4 mb-3 border border-border">
-      <View className="flex-row justify-between items-start">
-        <View className="flex-1">
-          <Text className="text-xl font-semibold text-foreground">
+    <View
+      style={[
+        {
+          backgroundColor: colors.surface,
+          borderColor: colors.border,
+          borderWidth: 0.5,
+          borderRadius: 12,
+          padding: 12,
+          marginBottom: 8,
+        },
+      ]}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        {/* Left: City and Country */}
+        <View style={{ flex: 1 }}>
+          <Text
+            style={{
+              fontSize: 14,
+              fontWeight: "600",
+              color: colors.foreground,
+            }}
+          >
             {item.timezone.city}
           </Text>
-          <Text className="text-sm text-muted mt-0.5">
-            {item.timezone.country} •{" "}
-            {getTimezoneAbbreviation(item.timezone.timezone)}
+          <Text
+            style={{
+              fontSize: 11,
+              color: colors.muted,
+              marginTop: 2,
+            }}
+          >
+            {item.timezone.country}
           </Text>
         </View>
-      </View>
 
-      <View className="mt-4">
-        <Text className="text-4xl font-bold text-foreground">
-          {item.formattedTime}
-        </Text>
-        <Text className="text-base text-muted mt-1">{item.formattedDate}</Text>
-      </View>
+        {/* Center: Time and Date */}
+        <View style={{ flex: 1, alignItems: "center" }}>
+          <Text
+            style={{
+              fontSize: 16,
+              fontWeight: "700",
+              color: colors.foreground,
+            }}
+          >
+            {item.formattedTime}
+          </Text>
+          <Text
+            style={{
+              fontSize: 10,
+              color: colors.muted,
+              marginTop: 2,
+            }}
+          >
+            {item.formattedDate}
+          </Text>
+        </View>
 
-      {item.exchangeRate && (
-        <View className="mt-3 bg-primary/10 rounded-lg px-3 py-2">
-          <Text className="text-sm font-medium text-primary">
-            1 {settings.baseCurrency} = {item.exchangeRate.toFixed(2)}{" "}
+        {/* Right: Exchange Rate */}
+        <View style={{ flex: 1, alignItems: "flex-end" }}>
+          <Text
+            style={{
+              fontSize: 12,
+              fontWeight: "600",
+              color: colors.primary,
+            }}
+          >
+            {item.exchangeRate
+              ? `1 ${settings.baseCurrency} = ${item.exchangeRate.toFixed(2)}`
+              : "No rate"}
+          </Text>
+          <Text
+            style={{
+              fontSize: 10,
+              color: colors.muted,
+              marginTop: 2,
+            }}
+          >
             {item.timezone.currency}
           </Text>
         </View>
-      )}
+      </View>
     </View>
   );
 
