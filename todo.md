@@ -40,3 +40,8 @@
 - [x] Remove delete button from cards
 - [x] Implement long-press to delete
 - [x] Display all info (city, time, date, exchange rate) in one compact row
+
+## Build Issues
+
+- [x] Increment version number to force Android update
+- [ ] Rebuild APK with new version
