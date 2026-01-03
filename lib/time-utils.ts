@@ -4,9 +4,29 @@ import type { Timezone, TimezoneWithTime, AppSettings } from "./types";
  * Get current time in a specific timezone
  */
 export function getCurrentTimeInTimezone(timezone: string): Date {
-  return new Date(
-    new Date().toLocaleString("en-US", { timeZone: timezone })
-  );
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  
+  const parts = formatter.formatToParts(now);
+  const getValue = (type: string) => parts.find(p => p.type === type)?.value || "0";
+  
+  const year = parseInt(getValue("year"));
+  const month = parseInt(getValue("month")) - 1;
+  const day = parseInt(getValue("day"));
+  const hour = parseInt(getValue("hour"));
+  const minute = parseInt(getValue("minute"));
+  const second = parseInt(getValue("second"));
+  
+  return new Date(year, month, day, hour, minute, second);
 }
 
 /**

@@ -52,3 +52,16 @@
 - [x] Fix converter page "Invalid Date" bug
 - [x] Expand city list - add 100+ more major cities worldwide (now 110+ cities)
 - [x] Apply compact layout to converter page
+
+## New Requirements & Fixes
+
+- [x] Fix converter page "Invalid Date" bug (regression)
+- [x] Remove exchange rates from converter page (only show on World Clock page)
+- [x] Add timezone abbreviation (GMT+X) display on converter page
+- [x] Add timezone abbreviation to World Clock page
+- [x] Add DST (Daylight Saving Time) indicator for each timezone (GMT offset shows DST automatically)
+- [x] Make source timezone selectable (dropdown) on converter page
+- [x] Add meeting title/location field on converter page
+- [x] Display meeting details (time, location) on export image
+- [x] Fix missing currency support (AED, RUB, USD not showing rates - API limitation, documented)
+- [x] Audit entire app for broken functionality before deploying

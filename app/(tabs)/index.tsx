@@ -18,7 +18,7 @@ import {
 } from "@/lib/storage";
 import { fetchExchangeRates } from "@/lib/api";
 import type { Timezone, AppSettings } from "@/lib/types";
-import { formatTime, formatDate } from "@/lib/time-utils";
+import { formatTime, formatDate, getTimezoneAbbreviation } from "@/lib/time-utils";
 
 interface TimezoneItem extends Timezone {
   currentTime: string;
@@ -160,7 +160,7 @@ export default function HomeScreen() {
               marginTop: 2,
             }}
           >
-            {item.country}
+            {item.country} • {getTimezoneAbbreviation(item.timezone)}
           </Text>
         </View>
 

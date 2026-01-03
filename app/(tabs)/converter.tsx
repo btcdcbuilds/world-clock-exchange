@@ -7,6 +7,8 @@ import {
   ScrollView,
   Platform,
   Alert,
+  Modal,
+  TextInput,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as Haptics from "expo-haptics";
@@ -24,6 +26,7 @@ import {
   formatTime,
   formatDate,
   getTimezoneAbbreviation,
+  getUTCOffset,
 } from "@/lib/time-utils";
 
 interface ConvertedTime {
@@ -37,11 +40,13 @@ interface ConvertedTime {
 export default function ConverterScreen() {
   const colors = useColors();
   const [timezones, setTimezones] = useState<Timezone[]>([]);
+  const [showTimezonePicker, setShowTimezonePicker] = useState(false);
   const [selectedTimezone, setSelectedTimezone] = useState<Timezone | null>(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [convertedTimes, setConvertedTimes] = useState<ConvertedTime[]>([]);
+  const [meetingTitle, setMeetingTitle] = useState("");
   const [exchangeRates, setExchangeRates] = useState<ExchangeRates | null>(null);
   const [settings, setSettings] = useState({
     baseCurrency: "USD",
@@ -78,23 +83,37 @@ export default function ConverterScreen() {
   const convertTimes = () => {
     if (!selectedTimezone) return;
 
-    const sourceTimeString = selectedDate.toLocaleString("en-US", {
-      timeZone: selectedTimezone.timezone,
-    });
-    const sourceTime = new Date(sourceTimeString);
-
     const converted: ConvertedTime[] = timezones.map((tz) => {
-      const targetTimeString = selectedDate.toLocaleString("en-US", {
+      // Convert the selected date/time to the target timezone
+      const formatter = new Intl.DateTimeFormat("en-US", {
         timeZone: tz.timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
       });
-      const targetTime = new Date(targetTimeString);
+      
+      const parts = formatter.formatToParts(selectedDate);
+      const getValue = (type: string) => parts.find(p => p.type === type)?.value || "0";
+      
+      const year = parseInt(getValue("year"));
+      const month = parseInt(getValue("month")) - 1;
+      const day = parseInt(getValue("day"));
+      const hour = parseInt(getValue("hour"));
+      const minute = parseInt(getValue("minute"));
+      const second = parseInt(getValue("second"));
+      
+      const targetTime = new Date(year, month, day, hour, minute, second);
 
       return {
         timezone: tz,
         localTime: targetTime,
         formattedTime: formatTime(targetTime, settings.timeFormat),
         formattedDate: formatDate(targetTime, settings.dateFormat),
-        exchangeRate: (exchangeRates as any)?.[tz.currency] || null,
+        exchangeRate: null, // Remove exchange rates from converter page
       };
     });
 
@@ -211,7 +230,7 @@ export default function ConverterScreen() {
           </Text>
         </View>
 
-        {/* Right: Exchange Rate */}
+        {/* Right: Timezone Info */}
         <View style={{ flex: 1, alignItems: "flex-end" }}>
           <Text
             style={{
@@ -220,9 +239,7 @@ export default function ConverterScreen() {
               color: colors.primary,
             }}
           >
-            {item.exchangeRate
-              ? `1 ${settings.baseCurrency} = ${item.exchangeRate.toFixed(2)}`
-              : "No rate"}
+            {getTimezoneAbbreviation(item.timezone.timezone)}
           </Text>
           <Text
             style={{
@@ -231,7 +248,7 @@ export default function ConverterScreen() {
               marginTop: 2,
             }}
           >
-            {item.timezone.currency}
+            {getUTCOffset(item.timezone.timezone)}
           </Text>
         </View>
       </View>
@@ -269,6 +286,7 @@ export default function ConverterScreen() {
             SOURCE TIMEZONE
           </Text>
           <TouchableOpacity
+            onPress={() => setShowTimezonePicker(true)}
             activeOpacity={0.7}
             className="bg-background rounded-xl p-3 border border-border"
           >
@@ -315,8 +333,62 @@ export default function ConverterScreen() {
           </View>
         </View>
 
+        {/* Meeting Title */}
+        <View className="bg-surface rounded-2xl p-4 mb-4 border border-border">
+          <Text className="text-sm font-semibold text-muted mb-2">
+            MEETING TITLE (OPTIONAL)
+          </Text>
+          <TextInput
+            value={meetingTitle}
+            onChangeText={setMeetingTitle}
+            placeholder="e.g., Team Standup, Client Call"
+            placeholderTextColor={colors.muted}
+            style={{
+              backgroundColor: colors.background,
+              borderRadius: 12,
+              padding: 12,
+              borderWidth: 1,
+              borderColor: colors.border,
+              fontSize: 15,
+              color: colors.foreground,
+            }}
+          />
+        </View>
+
         {/* Converted Times */}
         <View ref={exportViewRef} collapsable={false}>
+        {/* Meeting Header for Export */}
+        {meetingTitle && (
+          <View
+            style={{
+              backgroundColor: colors.surface,
+              borderRadius: 12,
+              padding: 16,
+              marginBottom: 12,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 18,
+                fontWeight: "700",
+                color: colors.foreground,
+                marginBottom: 8,
+              }}
+            >
+              {meetingTitle}
+            </Text>
+            <Text
+              style={{
+                fontSize: 13,
+                color: colors.muted,
+              }}
+            >
+              {selectedTimezone?.city} • {formatDate(selectedDate, settings.dateFormat)} at {formatTime(selectedDate, settings.timeFormat)}
+            </Text>
+          </View>
+        )}
         <View className="flex-row justify-between items-center mb-3">
           <Text className="text-lg font-semibold text-foreground">
             Converted Times
@@ -362,6 +434,106 @@ export default function ConverterScreen() {
           />
         )}
       </ScrollView>
+
+      {/* Timezone Picker Modal */}
+      <Modal
+        visible={showTimezonePicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowTimezonePicker(false)}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.5)",
+            justifyContent: "flex-end",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: colors.background,
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              maxHeight: "70%",
+              paddingTop: 20,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                paddingHorizontal: 20,
+                paddingBottom: 15,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 18,
+                  fontWeight: "700",
+                  color: colors.foreground,
+                }}
+              >
+                Select Source Timezone
+              </Text>
+              <TouchableOpacity onPress={() => setShowTimezonePicker(false)}>
+                <Text
+                  style={{
+                    fontSize: 16,
+                    color: colors.primary,
+                    fontWeight: "600",
+                  }}
+                >
+                  Done
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={timezones}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  onPress={() => {
+                    setSelectedTimezone(item);
+                    setShowTimezonePicker(false);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                  style={{
+                    padding: 16,
+                    borderBottomWidth: 1,
+                    borderBottomColor: colors.border,
+                    backgroundColor:
+                      selectedTimezone?.id === item.id
+                        ? colors.surface
+                        : colors.background,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 16,
+                      fontWeight: "600",
+                      color: colors.foreground,
+                    }}
+                  >
+                    {item.city}
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      color: colors.muted,
+                      marginTop: 2,
+                    }}
+                  >
+                    {item.country} • {getTimezoneAbbreviation(item.timezone)}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }
