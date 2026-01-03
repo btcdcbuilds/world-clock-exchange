@@ -29,3 +29,14 @@
 - [x] Empty states (no timezones added)
 - [x] Tab navigation setup
 - [x] Currency selection for each timezone
+
+## UI Improvements & Bug Fixes
+
+- [x] Fix "Invalid Date" bug in time display
+- [x] Fix "NaN/NaN/NaN" bug in date formatting
+- [x] Redesign home screen to XE-style compact layout
+- [x] Make timezone cards single-row items
+- [x] Reduce font sizes for better space utilization
+- [x] Remove delete button from cards
+- [x] Implement long-press to delete
+- [x] Display all info (city, time, date, exchange rate) in one compact row
