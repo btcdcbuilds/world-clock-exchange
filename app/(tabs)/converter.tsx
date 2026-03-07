@@ -84,36 +84,12 @@ export default function ConverterScreen() {
     if (!selectedTimezone) return;
 
     const converted: ConvertedTime[] = timezones.map((tz) => {
-      // Convert the selected date/time to the target timezone
-      const formatter = new Intl.DateTimeFormat("en-US", {
-        timeZone: tz.timezone,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false,
-      });
-      
-      const parts = formatter.formatToParts(selectedDate);
-      const getValue = (type: string) => parts.find(p => p.type === type)?.value || "0";
-      
-      const year = parseInt(getValue("year"));
-      const month = parseInt(getValue("month")) - 1;
-      const day = parseInt(getValue("day"));
-      const hour = parseInt(getValue("hour"));
-      const minute = parseInt(getValue("minute"));
-      const second = parseInt(getValue("second"));
-      
-      const targetTime = new Date(year, month, day, hour, minute, second);
-
       return {
         timezone: tz,
-        localTime: targetTime,
-        formattedTime: formatTime(targetTime, settings.timeFormat),
-        formattedDate: formatDate(targetTime, settings.dateFormat),
-        exchangeRate: null, // Remove exchange rates from converter page
+        localTime: selectedDate,
+        formattedTime: formatTime(selectedDate, settings.timeFormat, tz.timezone),
+        formattedDate: formatDate(selectedDate, settings.dateFormat, tz.timezone),
+        exchangeRate: null,
       };
     });
 
