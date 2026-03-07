@@ -15,48 +15,65 @@ export function getCurrentTimeInTimezone(timezone: string): Date {
     second: "2-digit",
     hour12: false,
   });
-  
+
   const parts = formatter.formatToParts(now);
   const getValue = (type: string) => parts.find(p => p.type === type)?.value || "0";
-  
+
   const year = parseInt(getValue("year"));
   const month = parseInt(getValue("month")) - 1;
   const day = parseInt(getValue("day"));
-  const hour = parseInt(getValue("hour"));
+  let hour = parseInt(getValue("hour"));
+  // Some engines return hour "24" for midnight; normalize to 0
+  if (hour === 24) hour = 0;
   const minute = parseInt(getValue("minute"));
   const second = parseInt(getValue("second"));
-  
+
   return new Date(year, month, day, hour, minute, second);
 }
 
 /**
- * Format time according to user preferences
+ * Format time according to user preferences, with optional timezone support
  */
-export function formatTime(date: Date, format: "12h" | "24h"): string {
-  if (format === "24h") {
-    return date.toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-  }
-  return date.toLocaleTimeString("en-US", {
+export function formatTime(
+  date: Date,
+  format: "12h" | "24h",
+  timezone?: string
+): string {
+  const options: Intl.DateTimeFormatOptions = {
     hour: "numeric",
     minute: "2-digit",
-    hour12: true,
-  });
+    hour12: format === "12h",
+  };
+  if (timezone) {
+    options.timeZone = timezone;
+  }
+  return date.toLocaleTimeString("en-US", options);
 }
 
 /**
- * Format date according to user preferences
+ * Format date according to user preferences, with optional timezone support
  */
 export function formatDate(
   date: Date,
-  format: "MM/DD/YYYY" | "DD/MM/YYYY" | "YYYY-MM-DD"
+  format: "MM/DD/YYYY" | "DD/MM/YYYY" | "YYYY-MM-DD",
+  timezone?: string
 ): string {
-  const day = date.getDate().toString().padStart(2, "0");
-  const month = (date.getMonth() + 1).toString().padStart(2, "0");
-  const year = date.getFullYear();
+  const options: Intl.DateTimeFormatOptions = {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  };
+  if (timezone) {
+    options.timeZone = timezone;
+  }
+
+  const formatter = new Intl.DateTimeFormat("en-US", options);
+  const parts = formatter.formatToParts(date);
+  const getValue = (type: string) => parts.find(p => p.type === type)?.value || "";
+
+  const month = getValue("month");
+  const day = getValue("day");
+  const year = getValue("year");
 
   switch (format) {
     case "MM/DD/YYYY":
@@ -73,8 +90,12 @@ export function formatDate(
 /**
  * Get day of week name
  */
-export function getDayOfWeek(date: Date): string {
-  return date.toLocaleDateString("en-US", { weekday: "short" });
+export function getDayOfWeek(date: Date, timezone?: string): string {
+  const options: Intl.DateTimeFormatOptions = { weekday: "short" };
+  if (timezone) {
+    options.timeZone = timezone;
+  }
+  return date.toLocaleDateString("en-US", options);
 }
 
 /**
@@ -85,23 +106,30 @@ export function convertTime(
   sourceTimezone: string,
   targetTimezone: string
 ): Date {
-  // Get the time in source timezone as a string
-  const sourceTimeString = sourceTime.toLocaleString("en-US", {
-    timeZone: sourceTimezone,
-  });
-
-  // Parse it back to a Date object
-  const sourceDate = new Date(sourceTimeString);
-
-  // Get the UTC timestamp
-  const utcTime = sourceDate.getTime();
-
-  // Create a new date in the target timezone
-  const targetTimeString = new Date(utcTime).toLocaleString("en-US", {
+  // Format the source time in the target timezone using Intl
+  const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: targetTimezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
   });
 
-  return new Date(targetTimeString);
+  const parts = formatter.formatToParts(sourceTime);
+  const getValue = (type: string) => parts.find(p => p.type === type)?.value || "0";
+
+  const year = parseInt(getValue("year"));
+  const month = parseInt(getValue("month")) - 1;
+  const day = parseInt(getValue("day"));
+  let hour = parseInt(getValue("hour"));
+  if (hour === 24) hour = 0;
+  const minute = parseInt(getValue("minute"));
+  const second = parseInt(getValue("second"));
+
+  return new Date(year, month, day, hour, minute, second);
 }
 
 /**
@@ -155,8 +183,8 @@ export function enrichTimezoneWithTime(
   return {
     ...timezone,
     currentTime,
-    formattedTime: formatTime(currentTime, settings.timeFormat),
-    formattedDate: formatDate(currentTime, settings.dateFormat),
+    formattedTime: formatTime(new Date(), settings.timeFormat, timezone.timezone),
+    formattedDate: formatDate(new Date(), settings.dateFormat, timezone.timezone),
     exchangeRate,
   };
 }

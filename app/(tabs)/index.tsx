@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -36,74 +36,63 @@ export default function HomeScreen() {
     dateFormat: "MM/DD/YYYY",
     baseCurrency: "USD",
   });
+  const ratesRef = useRef<Record<string, number>>({});
+  const savedTimezonesRef = useRef<Timezone[]>([]);
 
-  const updateTimes = useCallback(async () => {
+  // Fetch exchange rates and timezone list separately from the tick loop
+  const loadData = useCallback(async () => {
     try {
-      const savedTimezones = await loadTimezones();
-      const savedSettings = await loadSettings();
+      const [savedTimezones, savedSettings, rates] = await Promise.all([
+        loadTimezones(),
+        loadSettings(),
+        fetchExchangeRates(),
+      ]);
+      savedTimezonesRef.current = savedTimezones;
+      ratesRef.current = (rates as Record<string, number>) || {};
       setSettings(savedSettings);
-
-      if (savedTimezones.length === 0) {
-        setTimezones([]);
-        return;
-      }
-
-      // Fetch exchange rates
-      const rates = await fetchExchangeRates();
-
-      // Update each timezone with current time
-      const updated = savedTimezones.map((tz) => {
-        // Get current time in the timezone
-        const now = new Date();
-        const timeString = now.toLocaleString("en-US", {
-          timeZone: tz.timezone,
-          hour12: savedSettings.timeFormat === "12h",
-          hour: "2-digit",
-          minute: "2-digit",
-        });
-
-        const dateString = now.toLocaleString("en-US", {
-          timeZone: tz.timezone,
-          month: "2-digit",
-          day: "2-digit",
-          year: "numeric",
-        });
-
-        // Format according to user preferences
-        let formattedDate = dateString;
-        if (savedSettings.dateFormat === "DD/MM/YYYY") {
-          const [month, day, year] = dateString.split("/");
-          formattedDate = `${day}/${month}/${year}`;
-        } else if (savedSettings.dateFormat === "YYYY-MM-DD") {
-          const [month, day, year] = dateString.split("/");
-          formattedDate = `${year}-${month}-${day}`;
-        }
-
-        const exchangeRate = (rates as any)[tz.currency] || null;
-
-        return {
-          ...tz,
-          currentTime: timeString,
-          currentDate: formattedDate,
-          exchangeRate,
-        };
-      });
-
-      setTimezones(updated);
     } catch (error) {
-      console.error("Error updating times:", error);
+      console.error("Error loading data:", error);
     }
   }, []);
 
+  // Lightweight tick that only formats the current time (no async calls)
+  const tick = useCallback(() => {
+    const saved = savedTimezonesRef.current;
+    if (saved.length === 0) {
+      setTimezones([]);
+      return;
+    }
+
+    const now = new Date();
+    const currentSettings = settings;
+    const rates = ratesRef.current;
+
+    const updated = saved.map((tz) => ({
+      ...tz,
+      currentTime: formatTime(now, currentSettings.timeFormat, tz.timezone),
+      currentDate: formatDate(now, currentSettings.dateFormat, tz.timezone),
+      exchangeRate: (rates as any)[tz.currency] || null,
+    }));
+
+    setTimezones(updated);
+  }, [settings]);
+
+  // Load data on mount and when returning to this screen
   useEffect(() => {
-    updateTimes();
-    const interval = setInterval(updateTimes, 1000);
+    loadData().then(() => tick());
+  }, [loadData]);
+
+  // Tick every second for live clock updates (no async overhead)
+  useEffect(() => {
+    tick();
+    const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [updateTimes]);
+  }, [tick]);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await updateTimes();
+    await loadData();
+    tick();
     setRefreshing(false);
   };
 
