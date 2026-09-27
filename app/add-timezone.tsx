@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import * as Haptics from "expo-haptics";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
-import { TIMEZONE_DATA, getTimezonesByRegion, searchTimezones } from "@/lib/timezone-data";
+import { getTimezonesByRegion, searchTimezones } from "@/lib/timezone-data";
 import { addTimezone, loadTimezones } from "@/lib/storage";
 import type { Timezone } from "@/lib/types";
 
@@ -24,6 +24,13 @@ export default function AddTimezoneScreen() {
   const [filteredTimezones, setFilteredTimezones] = useState<
     Omit<Timezone, "id">[]
   >([]);
+  const [addedKeys, setAddedKeys] = useState<Set<string>>(new Set());
+
+  const keyOf = (tz: Omit<Timezone, "id">) => `${tz.city}|${tz.timezone}`;
+
+  useEffect(() => {
+    loadTimezones().then((saved) => setAddedKeys(new Set(saved.map(keyOf))));
+  }, []);
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
@@ -38,7 +45,11 @@ export default function AddTimezoneScreen() {
   const handleSelectTimezone = async (timezone: Omit<Timezone, "id">) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    const existingTimezones = await loadTimezones();
+    if (addedKeys.has(keyOf(timezone))) {
+      router.back();
+      return;
+    }
+
     const id = `${timezone.timezone}-${Date.now()}`;
 
     const newTimezone: Timezone = {
@@ -65,11 +76,15 @@ export default function AddTimezoneScreen() {
             {item.country} • {item.utcOffset}
           </Text>
         </View>
-        <View className="bg-primary/10 rounded-lg px-3 py-1.5">
-          <Text className="text-sm font-medium text-primary">
-            {item.currency}
-          </Text>
-        </View>
+        {addedKeys.has(keyOf(item)) ? (
+          <IconSymbol name="checkmark.circle.fill" size={24} color={colors.success} />
+        ) : (
+          <View className="bg-primary/10 rounded-lg px-3 py-1.5">
+            <Text className="text-sm font-medium text-primary">
+              {item.currency}
+            </Text>
+          </View>
+        )}
       </View>
     </TouchableOpacity>
   );
@@ -92,7 +107,7 @@ export default function AddTimezoneScreen() {
             activeOpacity={0.7}
             className="mr-3"
           >
-            <IconSymbol name="chevron.right" size={24} color={colors.foreground} />
+            <IconSymbol name="chevron.left" size={24} color={colors.foreground} />
           </TouchableOpacity>
           <Text className="text-3xl font-bold text-foreground">
             Add Timezone
