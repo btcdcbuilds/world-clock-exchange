@@ -9,7 +9,7 @@ const FRANKFURTER_API_BASE = "https://api.frankfurter.dev/v1";
  */
 export async function fetchExchangeRates(
   baseCurrency: string = "USD"
-): Promise<ExchangeRates> {
+): Promise<ExchangeRates["rates"]> {
   try {
     const response = await fetch(
       `${FRANKFURTER_API_BASE}/latest?base=${baseCurrency}`
@@ -20,7 +20,7 @@ export async function fetchExchangeRates(
     }
 
     const data = await response.json();
-    return data.rates as ExchangeRates;
+    return data.rates as ExchangeRates["rates"];
   } catch (error) {
     console.error("Failed to fetch exchange rates:", error);
     throw error;

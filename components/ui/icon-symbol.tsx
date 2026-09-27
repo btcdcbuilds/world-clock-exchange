@@ -27,6 +27,13 @@ const MAPPING = {
   "xmark": "close",
   "square.and.arrow.up": "share",
   "photo": "image",
+  "chevron.left": "chevron-left",
+  "calendar": "event",
+  "sparkles": "auto-awesome",
+  "person.2.fill": "group",
+  "minus": "remove",
+  "plus.circle.fill": "add-circle",
+  "checkmark.circle.fill": "check-circle",
 } as IconMapping;
 
 /**

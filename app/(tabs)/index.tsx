@@ -7,7 +7,7 @@ import {
   Pressable,
   Alert,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
@@ -15,6 +15,8 @@ import {
   loadTimezones,
   saveTimezones,
   loadSettings,
+  cacheExchangeRates,
+  loadCachedExchangeRates,
 } from "@/lib/storage";
 import { fetchExchangeRates } from "@/lib/api";
 import type { Timezone, AppSettings } from "@/lib/types";
@@ -39,19 +41,25 @@ export default function HomeScreen() {
   const ratesRef = useRef<Record<string, number>>({});
   const savedTimezonesRef = useRef<Timezone[]>([]);
 
-  // Fetch exchange rates and timezone list separately from the tick loop
-  const loadData = useCallback(async () => {
+  // Load saved cities and settings (fast, local)
+  const loadLocal = useCallback(async () => {
+    const [savedTimezones, savedSettings] = await Promise.all([
+      loadTimezones(),
+      loadSettings(),
+    ]);
+    savedTimezonesRef.current = savedTimezones;
+    setSettings(savedSettings);
+  }, []);
+
+  // Exchange rates come from the network; a failure must never hide the clocks
+  const loadRates = useCallback(async () => {
     try {
-      const [savedTimezones, savedSettings, rates] = await Promise.all([
-        loadTimezones(),
-        loadSettings(),
-        fetchExchangeRates(),
-      ]);
-      savedTimezonesRef.current = savedTimezones;
-      ratesRef.current = (rates as Record<string, number>) || {};
-      setSettings(savedSettings);
-    } catch (error) {
-      console.error("Error loading data:", error);
+      const rates = await fetchExchangeRates();
+      ratesRef.current = rates || {};
+      await cacheExchangeRates({ base: "USD", date: new Date().toISOString(), rates });
+    } catch {
+      const cached = await loadCachedExchangeRates();
+      if (cached?.rates) ratesRef.current = cached.rates;
     }
   }, []);
 
@@ -77,10 +85,18 @@ export default function HomeScreen() {
     setTimezones(updated);
   }, [settings]);
 
-  // Load data on mount and when returning to this screen
+  // Reload cities whenever this tab comes into focus (e.g. after adding one)
+  useFocusEffect(
+    useCallback(() => {
+      // Setting settings re-creates `tick`, whose effect below redraws immediately
+      loadLocal();
+    }, [loadLocal])
+  );
+
   useEffect(() => {
-    loadData().then(() => tick());
-  }, [loadData]);
+    loadRates().then(() => tick());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadRates]);
 
   // Tick every second for live clock updates (no async overhead)
   useEffect(() => {
@@ -91,7 +107,7 @@ export default function HomeScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadData();
+    await Promise.all([loadLocal(), loadRates()]);
     tick();
     setRefreshing(false);
   };
@@ -106,9 +122,10 @@ export default function HomeScreen() {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
-            const updated = timezones.filter((tz) => tz.id !== id);
+            const updated = savedTimezonesRef.current.filter((tz) => tz.id !== id);
+            savedTimezonesRef.current = updated;
             await saveTimezones(updated);
-            setTimezones(updated);
+            tick();
           },
         },
       ]
@@ -235,7 +252,7 @@ export default function HomeScreen() {
                 marginTop: 4,
               }}
             >
-              Last updated: {new Date().toLocaleDateString()}
+              Long-press a city to remove it
             </Text>
           )}
         </View>
