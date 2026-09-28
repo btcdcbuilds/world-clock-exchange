@@ -51,15 +51,17 @@ export default function HomeScreen() {
     setSettings(savedSettings);
   }, []);
 
-  // Exchange rates come from the network; a failure must never hide the clocks
-  const loadRates = useCallback(async () => {
+  // Exchange rates come from the network; a failure must never hide the clocks.
+  // Rates are quoted against the base currency chosen in Settings, and a cached
+  // set is only reused when it was fetched for that same base.
+  const loadRates = useCallback(async (base: string) => {
     try {
-      const rates = await fetchExchangeRates();
+      const rates = await fetchExchangeRates(base);
       ratesRef.current = rates || {};
-      await cacheExchangeRates({ base: "USD", date: new Date().toISOString(), rates });
+      await cacheExchangeRates({ base, date: new Date().toISOString(), rates });
     } catch {
       const cached = await loadCachedExchangeRates();
-      if (cached?.rates) ratesRef.current = cached.rates;
+      ratesRef.current = cached?.rates && cached.base === base ? cached.rates : {};
     }
   }, []);
 
@@ -79,7 +81,10 @@ export default function HomeScreen() {
       ...tz,
       currentTime: formatTime(now, currentSettings.timeFormat, tz.timezone),
       currentDate: formatDate(now, currentSettings.dateFormat, tz.timezone),
-      exchangeRate: (rates as any)[tz.currency] || null,
+      // The rate feed never lists the base currency against itself, so a city
+      // that uses the base currency is exactly 1, not "No rate".
+      exchangeRate:
+        tz.currency === currentSettings.baseCurrency ? 1 : (rates as any)[tz.currency] || null,
     }));
 
     setTimezones(updated);
@@ -93,10 +98,11 @@ export default function HomeScreen() {
     }, [loadLocal])
   );
 
+  // (Re)load rates whenever the base currency changes in Settings.
   useEffect(() => {
-    loadRates().then(() => tick());
+    loadRates(settings.baseCurrency).then(() => tick());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadRates]);
+  }, [loadRates, settings.baseCurrency]);
 
   // Tick every second for live clock updates (no async overhead)
   useEffect(() => {
@@ -107,7 +113,7 @@ export default function HomeScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([loadLocal(), loadRates()]);
+    await Promise.all([loadLocal(), loadRates(settings.baseCurrency)]);
     tick();
     setRefreshing(false);
   };
@@ -212,7 +218,7 @@ export default function HomeScreen() {
                   marginTop: 2,
                 }}
               >
-                = 1 USD
+                = 1 {settings.baseCurrency}
               </Text>
             </>
           ) : (

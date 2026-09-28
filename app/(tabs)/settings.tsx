@@ -1,15 +1,18 @@
 import { useState, useEffect } from "react";
 import { View, Text, TouchableOpacity, ScrollView, Alert } from "react-native";
 import * as Haptics from "expo-haptics";
+import Constants from "expo-constants";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { loadSettings, saveSettings } from "@/lib/storage";
+import { useThemeContext } from "@/lib/theme-provider";
 import type { AppSettings } from "@/lib/types";
 
 export default function SettingsScreen() {
   const colors = useColors();
+  const { setThemePreference } = useThemeContext();
   const [settings, setSettings] = useState<AppSettings>({
     baseCurrency: "USD",
     timeFormat: "12h",
@@ -33,6 +36,8 @@ export default function SettingsScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const newSettings = { ...settings, [key]: value };
     setSettings(newSettings);
+    // Theme applies app-wide immediately, not just on the next launch.
+    if (key === "theme") setThemePreference(value as AppSettings["theme"]);
     await saveSettings(newSettings);
   };
 
@@ -142,7 +147,7 @@ export default function SettingsScreen() {
           <View className="gap-2">
             <View className="flex-row justify-between">
               <Text className="text-base text-foreground">Version</Text>
-              <Text className="text-base text-muted">1.0.0</Text>
+              <Text className="text-base text-muted">{Constants.expoConfig?.version ?? "—"}</Text>
             </View>
             <View className="flex-row justify-between">
               <Text className="text-base text-foreground">Exchange Rate API</Text>
