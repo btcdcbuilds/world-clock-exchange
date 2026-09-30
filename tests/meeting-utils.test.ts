@@ -136,6 +136,40 @@ describe("suggestMeetingTimes", () => {
   it("returns nothing without participants", () => {
     expect(suggestMeetingTimes({ year: 2026, month: 1, day: 15 }, "UTC", [], 30)).toEqual([]);
   });
+
+  it("never offers a time at which nobody is in working hours", () => {
+    // Before the fix this offered 17:00 Bogota for 2 hours with 0 of 3 in working hours.
+    const day = { year: 2026, month: 9, day: 30 };
+    const zones = ["America/Bogota", "Asia/Tokyo", "America/New_York"];
+    const slots = suggestMeetingTimes(day, "America/Bogota", zones, 120);
+    expect(slots.length).toBeGreaterThan(0);
+    for (const slot of slots) {
+      expect(slot.workCount).toBeGreaterThanOrEqual(1);
+    }
+    expect(slots.some((s) => s.hostWall.hour === 17 && s.hostWall.minute === 0)).toBe(false);
+  });
+
+  it("never offers a time at which the host is outside working hours", () => {
+    // The four saved test cities with the host in Bogota and a 2 hour meeting:
+    // before the fix the first suggestion was 01:00 Bogota (host at night).
+    const day = { year: 2026, month: 9, day: 30 };
+    const zones = ["America/Bogota", "Asia/Tokyo", "Europe/London", "Australia/Sydney"];
+    const slots = suggestMeetingTimes(day, "America/Bogota", zones, 120);
+    expect(slots.length).toBeGreaterThan(0);
+    for (const slot of slots) {
+      const end = new Date(slot.start.getTime() + 120 * 60000);
+      expect(getMeetingStatus(slot.start, end, "America/Bogota")).not.toBe("night");
+      expect(slot.workCount).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("returns nothing when no time meets both rules", () => {
+    // A 10 hour meeting cannot fit inside anyone's 09:00 to 18:00 working hours.
+    const day = { year: 2026, month: 9, day: 30 };
+    expect(
+      suggestMeetingTimes(day, "Europe/London", ["Europe/London", "Asia/Tokyo"], 600)
+    ).toEqual([]);
+  });
 });
 
 describe("buildGoogleCalendarUrl", () => {

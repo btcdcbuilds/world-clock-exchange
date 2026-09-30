@@ -48,7 +48,10 @@ export default function HomeScreen() {
     dateFormat: "MM/DD/YYYY",
     baseCurrency: "USD",
   });
-  const ratesRef = useRef<Record<string, number>>({});
+  // Rates are kept together with the base they are quoted against, so a set for
+  // another base is never shown under the current base's label.
+  const ratesRef = useRef<{ base: string; rates: Record<string, number> }>({ base: "", rates: {} });
+  const rateRequestRef = useRef(0);
   const savedTimezonesRef = useRef<Timezone[]>([]);
 
   // Load saved cities and settings (fast, local)
@@ -64,14 +67,23 @@ export default function HomeScreen() {
   // Exchange rates come from the network; a failure must never hide the clocks.
   // Rates are quoted against the base currency chosen in Settings, and a cached
   // set is only reused when it was fetched for that same base.
+  // Only the latest request may set the rates: the first request goes out with the
+  // default base before saved settings load, and it must not land after (and
+  // overwrite) the request for the saved base.
   const loadRates = useCallback(async (base: string) => {
+    const request = ++rateRequestRef.current;
     try {
       const rates = await fetchExchangeRates(base);
-      ratesRef.current = rates || {};
+      if (request !== rateRequestRef.current) return;
+      ratesRef.current = { base, rates: rates || {} };
       await cacheExchangeRates({ base, date: new Date().toISOString(), rates });
     } catch {
       const cached = await loadCachedExchangeRates();
-      ratesRef.current = cached?.rates && cached.base === base ? cached.rates : {};
+      if (request !== rateRequestRef.current) return;
+      ratesRef.current = {
+        base,
+        rates: cached?.rates && cached.base === base ? cached.rates : {},
+      };
     }
   }, []);
 
@@ -85,7 +97,9 @@ export default function HomeScreen() {
 
     const now = new Date();
     const currentSettings = settings;
-    const rates = ratesRef.current;
+    // Rates for another base (still loading after a base change) are not shown.
+    const rates: Record<string, number> =
+      ratesRef.current.base === currentSettings.baseCurrency ? ratesRef.current.rates : {};
 
     const updated = saved.map((tz) => ({
       ...tz,
@@ -94,7 +108,7 @@ export default function HomeScreen() {
       // The rate feed never lists the base currency against itself, so a city
       // that uses the base currency is exactly 1, not "No rate".
       exchangeRate:
-        tz.currency === currentSettings.baseCurrency ? 1 : (rates as any)[tz.currency] || null,
+        tz.currency === currentSettings.baseCurrency ? 1 : rates[tz.currency] || null,
     }));
 
     setTimezones(updated);

@@ -10,9 +10,14 @@ describe("searchTimezones", () => {
     expect(cities("bogota")).toContain("Bogotá");
   });
 
-  it("treats underscores in identifiers as spaces", () => {
+  it("matches the identifier with its underscores kept", () => {
     expect(cities("Sao_Paulo")).toContain("São Paulo");
-    expect(cities("america/sao paulo")).toContain("São Paulo");
+    expect(cities("america/new_york")).toContain("New York");
+  });
+
+  it("does not list every city in the same time zone for a city name", () => {
+    expect(cities("new york")).toEqual(["New York"]);
+    expect(cities("los angeles")).toEqual(["Los Angeles"]);
   });
 
   it("is case-insensitive and still matches country and identifier", () => {

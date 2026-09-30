@@ -126,27 +126,31 @@ export const TIMEZONE_DATA: Omit<Timezone, "id">[] = [
 ];
 
 /**
- * Lower-case, strip accents and treat underscores as spaces,
- * so "Sao Paulo" matches "São Paulo" and "America/Sao_Paulo".
+ * Lower-case and strip accents, so "Sao Paulo" matches "São Paulo".
+ * Used for the city and country names only.
  */
 function normalizeForSearch(text: string): string {
   return text
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
-    .replace(/_/g, " ")
     .toLowerCase();
 }
 
 /**
- * Get timezone data by city name (case- and accent-insensitive search)
+ * Get timezone data by city name.
+ * City and country match case- and accent-insensitively. The time-zone
+ * identifier matches lower-cased with its underscores kept, so "new york"
+ * finds New York only and not every city in America/New_York.
  */
 export function searchTimezones(query: string): Omit<Timezone, "id">[] {
-  const normalizedQuery = normalizeForSearch(query);
+  const trimmed = query.trim();
+  const normalizedQuery = normalizeForSearch(trimmed);
+  const lowerQuery = trimmed.toLowerCase();
   return TIMEZONE_DATA.filter(
     (tz) =>
       normalizeForSearch(tz.city).includes(normalizedQuery) ||
       normalizeForSearch(tz.country).includes(normalizedQuery) ||
-      normalizeForSearch(tz.timezone).includes(normalizedQuery)
+      tz.timezone.toLowerCase().includes(lowerQuery)
   );
 }
 

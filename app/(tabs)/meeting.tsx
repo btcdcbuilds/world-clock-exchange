@@ -42,10 +42,20 @@ import {
 const LOCAL_HOST_ID = "__local__";
 const DURATIONS = [15, 30, 45, 60, 90, 120];
 const DATE_RANGE_DAYS = 90;
+const DATE_CHIP_WIDTH = 58;
+const DATE_CHIP_GAP = 6;
 const CELL_WIDTH = 40;
 const LABEL_WIDTH = 92;
+const LAST_START_MINUTES = 24 * 60 - 15;
 
 type CalendarDate = Pick<WallTime, "year" | "month" | "day">;
+
+/** Keep a date inside the date strip (today to the strip's last day, host calendar). */
+function clampToRange(d: CalendarDate, first: CalendarDate, last: CalendarDate): CalendarDate {
+  if (dayDifference(first, d) < 0) return { year: first.year, month: first.month, day: first.day };
+  if (dayDifference(d, last) < 0) return { year: last.year, month: last.month, day: last.day };
+  return { year: d.year, month: d.month, day: d.day };
+}
 
 interface Participant {
   key: string;
@@ -80,15 +90,30 @@ export default function MeetingScreen() {
   const [hostId, setHostId] = useState<string>(LOCAL_HOST_ID);
   const [title, setTitle] = useState("");
   const [duration, setDuration] = useState(60);
-  const [date, setDate] = useState<CalendarDate>(() => getWallTime(new Date(), deviceTimeZone));
-  const [startMinutes, setStartMinutes] = useState(() => {
+  // The chosen day and start time are one piece of state, so quick repeated presses of the
+  // arrows and the ± buttons each build on the previous press (none are lost), and a roll
+  // over midnight changes the day and the time together.
+  const [when, setWhen] = useState<{ date: CalendarDate; startMinutes: number }>(() => {
     const now = getWallTime(new Date(), deviceTimeZone);
-    return Math.min((now.hour + 1) * 60, 23 * 60);
+    return {
+      date: { year: now.year, month: now.month, day: now.day },
+      startMinutes: Math.min((now.hour + 1) * 60, 23 * 60),
+    };
   });
+  const { date, startMinutes } = when;
+  const setDate = useCallback((d: CalendarDate) => {
+    setWhen((w) => ({ ...w, date: { year: d.year, month: d.month, day: d.day } }));
+  }, []);
+  const setStartMinutes = useCallback((minutes: number) => {
+    setWhen((w) => ({ ...w, startMinutes: minutes }));
+  }, []);
   const [notice, setNotice] = useState<string | null>(null);
 
   const exportViewRef = useRef<View>(null);
   const gridScrollRef = useRef<ScrollView>(null);
+  const dateScrollRef = useRef<ScrollView>(null);
+  const dateScrollX = useRef(0);
+  const dateViewportWidth = useRef(0);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useFocusEffect(
@@ -196,6 +221,32 @@ export default function MeetingScreen() {
     const today = getWallTime(new Date(), hostTimeZone);
     return Array.from({ length: DATE_RANGE_DAYS }, (_, i) => addDays(today, i));
   }, [hostTimeZone]);
+  const firstDay = dateOptions[0];
+  const lastDay = dateOptions[dateOptions.length - 1];
+  const isFirstDay = dayDifference(firstDay, date) <= 0;
+  const isLastDay = dayDifference(date, lastDay) <= 0;
+  const dateIndex = dayDifference(firstDay, date);
+
+  // The date never leaves the strip (for example after switching the host city).
+  useEffect(() => {
+    const clamped = clampToRange(date, firstDay, lastDay);
+    if (dayDifference(date, clamped) !== 0) setDate(clamped);
+  }, [date, firstDay, lastDay, setDate]);
+
+  // Scroll the date strip so the selected day's chip is visible whenever the date changes.
+  const revealDateChip = useCallback((index: number, animated: boolean) => {
+    const width = dateViewportWidth.current;
+    const left = index * (DATE_CHIP_WIDTH + DATE_CHIP_GAP);
+    const right = left + DATE_CHIP_WIDTH;
+    const visibleFrom = dateScrollX.current;
+    if (width > 0 && left >= visibleFrom && right <= visibleFrom + width) return;
+    const x = Math.max(0, left - Math.max(0, (width - DATE_CHIP_WIDTH) / 2));
+    dateScrollRef.current?.scrollTo({ x, animated });
+  }, []);
+
+  useEffect(() => {
+    if (dateIndex >= 0 && dateIndex < DATE_RANGE_DAYS) revealDateChip(dateIndex, true);
+  }, [dateIndex, loaded, revealDateChip]);
 
   const selectedHour = Math.floor(startMinutes / 60);
   const lastSelectedHour = Math.floor((startMinutes + duration - 1) / 60);
@@ -223,28 +274,52 @@ export default function MeetingScreen() {
     const newTz = zones.find((z) => z.id === id)?.timezone ?? deviceTimeZone;
     const wall = getWallTime(start, newTz);
     setHostId(id);
-    setDate({ year: wall.year, month: wall.month, day: wall.day });
-    setStartMinutes(wall.hour * 60 + wall.minute);
+    setWhen({
+      date: { year: wall.year, month: wall.month, day: wall.day },
+      startMinutes: wall.hour * 60 + wall.minute,
+    });
   };
 
+  /**
+   * Move the start time by `delta` minutes, rolling over midnight into the next or previous
+   * day, but never before 00:00 on the strip's first day (today) or after 23:45 on its last day.
+   * Built on the latest state, so presses made before the screen redraws are not lost.
+   */
   const shiftTime = (delta: number) => {
-    tap();
-    const next = startMinutes + delta;
-    if (next < 0) {
-      setDate(addDays({ ...date, hour: 0, minute: 0 }, -1));
-      setStartMinutes(next + 24 * 60);
-    } else if (next >= 24 * 60) {
-      setDate(addDays({ ...date, hour: 0, minute: 0 }, 1));
-      setStartMinutes(next - 24 * 60);
-    } else {
-      setStartMinutes(next);
-    }
+    const atStart = isFirstDay && startMinutes + delta < 0 && startMinutes === 0;
+    const atEnd = isLastDay && startMinutes + delta >= 24 * 60 && startMinutes >= LAST_START_MINUTES;
+    if (!atStart && !atEnd) tap();
+    setWhen((w) => {
+      const next = w.startMinutes + delta;
+      if (next < 0) {
+        const previous = clampToRange(addDays({ ...w.date, hour: 0, minute: 0 }, -1), firstDay, lastDay);
+        // Already on the first day: stop at 00:00.
+        if (dayDifference(previous, w.date) === 0) return w.startMinutes === 0 ? w : { ...w, startMinutes: 0 };
+        return { date: previous, startMinutes: next + 24 * 60 };
+      }
+      if (next >= 24 * 60) {
+        const following = clampToRange(addDays({ ...w.date, hour: 0, minute: 0 }, 1), firstDay, lastDay);
+        // Already on the last day: stop at 23:45.
+        if (dayDifference(w.date, following) === 0) {
+          return w.startMinutes >= LAST_START_MINUTES ? w : { ...w, startMinutes: LAST_START_MINUTES };
+        }
+        return { date: following, startMinutes: next - 24 * 60 };
+      }
+      return { ...w, startMinutes: next };
+    });
   };
 
+  /**
+   * Move the date one day back or forward, never outside the date strip
+   * (today to today + 89 days in the host's calendar).
+   */
   const shiftDay = (delta: number) => {
+    if ((delta < 0 && isFirstDay) || (delta > 0 && isLastDay)) return;
     tap();
-    const d = addDays({ ...date, hour: 0, minute: 0 }, delta);
-    setDate({ year: d.year, month: d.month, day: d.day });
+    setWhen((w) => {
+      const next = clampToRange(addDays({ ...w.date, hour: 0, minute: 0 }, delta), firstDay, lastDay);
+      return dayDifference(w.date, next) === 0 ? w : { ...w, date: next };
+    });
   };
 
   const summaryText = () => {
@@ -467,11 +542,35 @@ export default function MeetingScreen() {
           >
             {sectionLabel("DATE")}
             <View style={{ flexDirection: "row", gap: 6 }}>
-              <StepButton icon="chevron.left" onPress={() => shiftDay(-1)} label="Previous day" colors={colors} />
-              <StepButton icon="chevron.right" onPress={() => shiftDay(1)} label="Next day" colors={colors} />
+              <StepButton
+                icon="chevron.left"
+                onPress={() => shiftDay(-1)}
+                label="Previous day"
+                disabled={isFirstDay}
+                colors={colors}
+              />
+              <StepButton
+                icon="chevron.right"
+                onPress={() => shiftDay(1)}
+                label="Next day"
+                disabled={isLastDay}
+                colors={colors}
+              />
             </View>
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <ScrollView
+            ref={dateScrollRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onScroll={(e) => {
+              dateScrollX.current = e.nativeEvent.contentOffset.x;
+            }}
+            onLayout={(e) => {
+              dateViewportWidth.current = e.nativeEvent.layout.width;
+              if (dateIndex >= 0 && dateIndex < DATE_RANGE_DAYS) revealDateChip(dateIndex, false);
+            }}
+          >
             {dateOptions.map((d, i) => {
               const selected = d.year === date.year && d.month === date.month && d.day === date.day;
               return (
@@ -483,11 +582,11 @@ export default function MeetingScreen() {
                   }}
                   activeOpacity={0.7}
                   style={{
-                    width: 58,
+                    width: DATE_CHIP_WIDTH,
                     paddingVertical: 8,
                     borderRadius: 12,
                     alignItems: "center",
-                    marginRight: 6,
+                    marginRight: DATE_CHIP_GAP,
                     backgroundColor: selected ? colors.primary : colors.background,
                     borderWidth: 1,
                     borderColor: selected ? colors.primary : colors.border,
@@ -539,7 +638,7 @@ export default function MeetingScreen() {
         </View>
 
         {/* Suggestions */}
-        {participants.length > 1 && suggestions.length > 0 && (
+        {participants.length > 1 && (
           <View style={card}>
             <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, gap: 6 }}>
               <IconSymbol name="sparkles" size={16} color={colors.primary} />
@@ -547,6 +646,12 @@ export default function MeetingScreen() {
                 BEST TIMES THIS DAY
               </Text>
             </View>
+            {suggestions.length === 0 && (
+              <Text style={{ fontSize: 14, color: colors.muted }}>
+                No time on this day puts everyone in working hours. Try another day or a shorter
+                meeting.
+              </Text>
+            )}
             {suggestions.map((s) => {
               const selected = s.start.getTime() === start.getTime();
               return (
@@ -802,19 +907,23 @@ function StepButton({
   onPress,
   label,
   large,
+  disabled,
   colors,
 }: {
   icon: "chevron.left" | "chevron.right" | "minus" | "plus";
   onPress: () => void;
   label: string;
   large?: boolean;
+  disabled?: boolean;
   colors: ReturnType<typeof useColors>;
 }) {
   const size = large ? 48 : 32;
   return (
     <TouchableOpacity
       onPress={onPress}
+      disabled={disabled}
       accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled }}
       activeOpacity={0.7}
       style={{
         width: size,
@@ -825,6 +934,7 @@ function StepButton({
         backgroundColor: colors.background,
         borderWidth: 1,
         borderColor: colors.border,
+        opacity: disabled ? 0.35 : 1,
       }}
     >
       <IconSymbol name={icon} size={large ? 24 : 18} color={colors.foreground} />

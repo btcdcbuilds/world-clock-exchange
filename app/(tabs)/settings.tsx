@@ -150,18 +150,20 @@ export default function SettingsScreen() {
               <Text className="text-base text-muted">{Constants.expoConfig?.version ?? "—"}</Text>
             </View>
             <View className="flex-row justify-between">
-              <Text className="text-base text-foreground">Exchange Rate API</Text>
-              <Text className="text-base text-muted">Frankfurter</Text>
+              <Text className="text-base text-foreground mr-4">Exchange rates</Text>
+              <Text className="text-base text-muted text-right flex-shrink">
+                Frankfurter and ExchangeRate-API
+              </Text>
             </View>
           </View>
         </View>
 
         <View className="pb-8">
           <Text className="text-xs text-muted text-center">
-            Exchange rates provided by Frankfurter API
+            Exchange rates from Frankfurter (European Central Bank data)
           </Text>
           <Text className="text-xs text-muted text-center mt-1">
-            Data sourced from European Central Bank
+            Other currencies from ExchangeRate-API (open.er-api.com)
           </Text>
         </View>
       </ScrollView>
