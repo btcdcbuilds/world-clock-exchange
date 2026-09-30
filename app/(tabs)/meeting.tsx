@@ -48,6 +48,19 @@ const CELL_WIDTH = 40;
 const LABEL_WIDTH = 92;
 const LAST_START_MINUTES = 24 * 60 - 15;
 
+/**
+ * Shared settings for the sideways strips (host cities, dates, durations, hour grid).
+ * On Android 12 and later a fast swipe back to the start of a strip could leave the edge
+ * "stretch" effect stuck, and while it is stuck the strip treats the next taps as the start
+ * of a drag, so the chips ignored them. Turning the edge effect off keeps every tap a tap.
+ */
+const STRIP_SCROLL_PROPS = {
+  horizontal: true,
+  showsHorizontalScrollIndicator: false,
+  overScrollMode: "never",
+  bounces: false,
+} as const;
+
 type CalendarDate = Pick<WallTime, "year" | "month" | "day">;
 
 /** Keep a date inside the date strip (today to the strip's last day, host calendar). */
@@ -110,6 +123,7 @@ export default function MeetingScreen() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const exportViewRef = useRef<View>(null);
+  const hostScrollRef = useRef<ScrollView>(null);
   const gridScrollRef = useRef<ScrollView>(null);
   const dateScrollRef = useRef<ScrollView>(null);
   const dateScrollX = useRef(0);
@@ -135,15 +149,37 @@ export default function MeetingScreen() {
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
   }, []);
 
-  // If the host city was removed on another tab, fall back to local time
-  useEffect(() => {
-    if (hostId !== LOCAL_HOST_ID && !zones.some((z) => z.id === hostId)) {
-      setHostId(LOCAL_HOST_ID);
-    }
-  }, [zones, hostId]);
-
   const hostZone = zones.find((z) => z.id === hostId);
-  const hostTimeZone = hostZone?.timezone ?? deviceTimeZone;
+  // The time zone of the last host that still existed. If the host city is removed on World
+  // Clock, the chosen day and time are still read in that city's time zone until the effect
+  // below hands over to My time, so the meeting never jumps, not even for one frame.
+  const lastHostTimeZone = useRef(deviceTimeZone);
+  const hostTimeZone =
+    hostZone?.timezone ?? (hostId === LOCAL_HOST_ID ? deviceTimeZone : lastHostTimeZone.current);
+  useEffect(() => {
+    lastHostTimeZone.current = hostTimeZone;
+  }, [hostTimeZone]);
+
+  // If the host city was removed on another tab, fall back to My time at the same moment:
+  // re-express the chosen start in the phone's own calendar (as tapping a host chip does)
+  // and bring the selected My time chip back into view.
+  useEffect(() => {
+    if (hostId === LOCAL_HOST_ID || zones.some((z) => z.id === hostId)) return;
+    const removedTimeZone = lastHostTimeZone.current;
+    setWhen((w) => {
+      const instant = zonedWallTimeToUtc(
+        { ...w.date, hour: Math.floor(w.startMinutes / 60), minute: w.startMinutes % 60 },
+        removedTimeZone
+      );
+      const wall = getWallTime(instant, deviceTimeZone);
+      return {
+        date: { year: wall.year, month: wall.month, day: wall.day },
+        startMinutes: wall.hour * 60 + wall.minute,
+      };
+    });
+    setHostId(LOCAL_HOST_ID);
+    hostScrollRef.current?.scrollTo({ x: 0, animated: true });
+  }, [zones, hostId, deviceTimeZone]);
 
   const participants: Participant[] = useMemo(() => {
     const list: Participant[] = zones.map((z) => ({
@@ -520,7 +556,7 @@ export default function MeetingScreen() {
 
         {/* Host timezone */}
         {sectionLabel("SET THE TIME IN")}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+        <ScrollView ref={hostScrollRef} {...STRIP_SCROLL_PROPS} style={{ marginBottom: 16 }}>
           {chip(
             `My time · ${cityFromTimeZone(deviceTimeZone)}`,
             hostId === LOCAL_HOST_ID,
@@ -560,8 +596,7 @@ export default function MeetingScreen() {
           </View>
           <ScrollView
             ref={dateScrollRef}
-            horizontal
-            showsHorizontalScrollIndicator={false}
+            {...STRIP_SCROLL_PROPS}
             scrollEventThrottle={16}
             onScroll={(e) => {
               dateScrollX.current = e.nativeEvent.contentOffset.x;
@@ -632,7 +667,7 @@ export default function MeetingScreen() {
 
           <View style={{ height: 14 }} />
           {sectionLabel("DURATION")}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <ScrollView {...STRIP_SCROLL_PROPS}>
             {DURATIONS.map((d) => chip(formatDuration(d), duration === d, () => { tap(); setDuration(d); }))}
           </ScrollView>
         </View>
@@ -728,7 +763,7 @@ export default function MeetingScreen() {
                 </View>
               ))}
             </View>
-            <ScrollView ref={gridScrollRef} horizontal showsHorizontalScrollIndicator={false}>
+            <ScrollView ref={gridScrollRef} {...STRIP_SCROLL_PROPS}>
               <View>
                 {grid.map((cells, rowIndex) => (
                   <View key={participants[rowIndex].key} style={{ flexDirection: "row", height: 38 }}>
