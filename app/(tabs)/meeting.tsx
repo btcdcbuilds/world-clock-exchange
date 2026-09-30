@@ -377,7 +377,13 @@ export default function MeetingScreen() {
     marginBottom: 14,
   } as const;
 
-  if (loaded && zones.length === 0) {
+  // Draw nothing until saved cities and settings are in, so the first frame
+  // never shows the default 12-hour / US date format or a partial city list.
+  if (!loaded) {
+    return <ScreenContainer />;
+  }
+
+  if (zones.length === 0) {
     return (
       <ScreenContainer className="items-center justify-center px-6">
         <IconSymbol name="person.2.fill" size={64} color={colors.muted} />
@@ -501,7 +507,8 @@ export default function MeetingScreen() {
             })}
           </ScrollView>
           <Text style={{ fontSize: 13, color: colors.foreground, marginTop: 10, fontWeight: "600" }}>
-            {formatWallDate(date, settings.dateFormat)} {date.year}
+            {formatWallDate(date, settings.dateFormat)}
+            {settings.dateFormat === "YYYY-MM-DD" ? "" : ` ${date.year}`}
             {isWeekend(date) ? (
               <Text style={{ color: colors.warning, fontWeight: "600" }}>  · Weekend</Text>
             ) : null}

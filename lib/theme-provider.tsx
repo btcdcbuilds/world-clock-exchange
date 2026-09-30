@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { Appearance, View, useColorScheme as useSystemColorScheme } from "react-native";
+import { View, useColorScheme as useSystemColorScheme } from "react-native";
 import { colorScheme as nativewindColorScheme, vars } from "nativewind";
 
 import { SchemeColors, type ColorScheme } from "@/constants/theme";
@@ -32,14 +32,21 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       .catch(() => {});
   }, []);
 
-  // Light/Dark override the phone's setting; Auto (null) hands control back to it.
+  // Light/Dark override the phone's setting; Auto ("system") hands control back to it.
+  // On native, NativeWind's colorScheme.set() calls Appearance.setColorScheme(), which pins
+  // the app to that scheme. So it is driven by the preference only, never by the resolved
+  // scheme: pinning the resolved scheme in Auto froze the app on it (it stopped following
+  // the phone), and racing the Auto call could flip light/dark back and forth endlessly.
   useEffect(() => {
-    Appearance.setColorScheme?.(themePreference === "auto" ? null : themePreference);
+    if (typeof document === "undefined") {
+      nativewindColorScheme.set(themePreference === "auto" ? "system" : themePreference);
+    }
   }, [themePreference]);
 
   useEffect(() => {
-    nativewindColorScheme.set(colorScheme);
     if (typeof document !== "undefined") {
+      // Web: NativeWind only toggles the "dark" class here, so it gets the resolved scheme.
+      nativewindColorScheme.set(colorScheme);
       const root = document.documentElement;
       root.dataset.theme = colorScheme;
       root.classList.toggle("dark", colorScheme === "dark");

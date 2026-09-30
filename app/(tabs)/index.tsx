@@ -28,6 +28,16 @@ interface TimezoneItem extends Timezone {
   exchangeRate: number | null;
 }
 
+/**
+ * Two decimals for rates of 1 or more; three significant digits below that,
+ * so small rates (e.g. against the yen: 0.00481 GBP) don't round to 0.00.
+ */
+function formatExchangeRate(rate: number): string {
+  if (rate >= 1) return rate.toFixed(2);
+  const decimals = Math.min(8, 2 - Math.floor(Math.log10(rate)));
+  return rate.toFixed(decimals);
+}
+
 export default function HomeScreen() {
   const colors = useColors();
   const [timezones, setTimezones] = useState<TimezoneItem[]>([]);
@@ -209,7 +219,7 @@ export default function HomeScreen() {
                   color: colors.primary,
                 }}
               >
-                {item.exchangeRate.toFixed(2)} {item.currency}
+                {formatExchangeRate(item.exchangeRate)} {item.currency}
               </Text>
               <Text
                 style={{

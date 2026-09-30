@@ -63,7 +63,7 @@ export default function SettingsScreen() {
           >
             <Text
               className={`font-medium ${
-                value === option.value ? "text-background" : "text-foreground"
+                value === option.value ? "text-white" : "text-foreground"
               }`}
             >
               {option.label}
