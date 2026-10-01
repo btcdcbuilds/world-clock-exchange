@@ -25,6 +25,7 @@ const MAPPING = {
   "trash": "delete",
   "magnifyingglass": "search",
   "xmark": "close",
+  "doc.text": "notes",
   "square.and.arrow.up": "share",
   "photo": "image",
   "chevron.left": "chevron-left",
