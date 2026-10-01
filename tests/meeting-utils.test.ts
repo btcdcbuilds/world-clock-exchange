@@ -10,6 +10,7 @@ import {
   getWallTime,
   isWeekend,
   suggestMeetingTimes,
+  findMeetingWindows,
   zonedWallTimeToUtc,
 } from "../lib/meeting-utils";
 
@@ -78,10 +79,12 @@ describe("isWeekend", () => {
 
 describe("status", () => {
   it("classifies hours", () => {
-    expect(getHourStatus(9)).toBe("work");
-    expect(getHourStatus(17)).toBe("work");
-    expect(getHourStatus(18)).toBe("edge");
+    expect(getHourStatus(8)).toBe("good");
+    expect(getHourStatus(18)).toBe("good");
+    expect(getHourStatus(20)).toBe("good");
+    expect(getHourStatus(21)).toBe("edge");
     expect(getHourStatus(7)).toBe("edge");
+    expect(getHourStatus(22)).toBe("night");
     expect(getHourStatus(3)).toBe("night");
   });
 
@@ -89,15 +92,15 @@ describe("status", () => {
     // 09:00 New York (EST) = 14:00 London = 23:00 Tokyo
     const start = new Date("2026-01-15T14:00:00Z");
     const end = new Date("2026-01-15T15:00:00Z");
-    expect(getMeetingStatus(start, end, "America/New_York")).toBe("work");
-    expect(getMeetingStatus(start, end, "Europe/London")).toBe("work");
+    expect(getMeetingStatus(start, end, "America/New_York")).toBe("good");
+    expect(getMeetingStatus(start, end, "Europe/London")).toBe("good");
     expect(getMeetingStatus(start, end, "Asia/Tokyo")).toBe("night");
   });
 
-  it("treats a meeting ending exactly at 18:00 as working hours", () => {
-    const start = new Date("2026-01-15T17:00:00Z");
-    const end = new Date("2026-01-15T18:00:00Z");
-    expect(getMeetingStatus(start, end, "UTC")).toBe("work");
+  it("treats a meeting ending exactly at 21:00 as reasonable hours", () => {
+    const start = new Date("2026-01-15T20:00:00Z");
+    const end = new Date("2026-01-15T21:00:00Z");
+    expect(getMeetingStatus(start, end, "UTC")).toBe("good");
   });
 });
 
@@ -111,11 +114,15 @@ describe("suggestMeetingTimes", () => {
     );
     expect(slots.length).toBeGreaterThan(0);
     for (const slot of slots) {
-      expect(slot.workCount).toBe(2);
+      expect(slot.goodCount).toBe(2);
       expect(slot.nightCount).toBe(0);
-      // Overlap is 14:00-17:00 London (09:00-12:00 New York)
-      expect(slot.hostWall.hour).toBeGreaterThanOrEqual(14);
-      expect(slot.hostWall.hour).toBeLessThanOrEqual(17);
+      // Overlap is 13:00-21:00 London (08:00-16:00 New York), so a 1 hour start is 13:00-20:00
+      expect(slot.hostWall.hour).toBeGreaterThanOrEqual(13);
+      expect(slot.hostWall.hour).toBeLessThanOrEqual(20);
+    }
+    // Suggestions are real alternatives: at least two hours apart
+    for (let i = 1; i < slots.length; i++) {
+      expect(slots[i].start.getTime() - slots[i - 1].start.getTime()).toBeGreaterThanOrEqual(120 * 60000);
     }
   });
 
@@ -126,7 +133,12 @@ describe("suggestMeetingTimes", () => {
       ["America/Los_Angeles", "Europe/London", "Asia/Singapore"],
       30
     );
-    expect(slots.length).toBe(3);
+    expect(slots.length).toBeGreaterThan(0);
+    // Every suggestion is in the same (best) tier
+    for (const slot of slots) {
+      expect(slot.nightCount).toBe(slots[0].nightCount);
+      expect(slot.goodCount).toBe(slots[0].goodCount);
+    }
     // Results come back in chronological order
     for (let i = 1; i < slots.length; i++) {
       expect(slots[i].start.getTime()).toBeGreaterThan(slots[i - 1].start.getTime());
@@ -137,19 +149,18 @@ describe("suggestMeetingTimes", () => {
     expect(suggestMeetingTimes({ year: 2026, month: 1, day: 15 }, "UTC", [], 30)).toEqual([]);
   });
 
-  it("never offers a time at which nobody is in working hours", () => {
+  it("never offers a time at which nobody is in reasonable hours", () => {
     // Before the fix this offered 17:00 Bogota for 2 hours with 0 of 3 in working hours.
     const day = { year: 2026, month: 9, day: 30 };
     const zones = ["America/Bogota", "Asia/Tokyo", "America/New_York"];
     const slots = suggestMeetingTimes(day, "America/Bogota", zones, 120);
     expect(slots.length).toBeGreaterThan(0);
     for (const slot of slots) {
-      expect(slot.workCount).toBeGreaterThanOrEqual(1);
+      expect(slot.goodCount).toBeGreaterThanOrEqual(1);
     }
-    expect(slots.some((s) => s.hostWall.hour === 17 && s.hostWall.minute === 0)).toBe(false);
   });
 
-  it("never offers a time at which the host is outside working hours", () => {
+  it("never offers a time at which the host is at night", () => {
     // The four saved test cities with the host in Bogota and a 2 hour meeting:
     // before the fix the first suggestion was 01:00 Bogota (host at night).
     const day = { year: 2026, month: 9, day: 30 };
@@ -159,16 +170,64 @@ describe("suggestMeetingTimes", () => {
     for (const slot of slots) {
       const end = new Date(slot.start.getTime() + 120 * 60000);
       expect(getMeetingStatus(slot.start, end, "America/Bogota")).not.toBe("night");
-      expect(slot.workCount).toBeGreaterThanOrEqual(1);
+      expect(slot.goodCount).toBeGreaterThanOrEqual(1);
     }
   });
 
   it("returns nothing when no time meets both rules", () => {
-    // A 10 hour meeting cannot fit inside anyone's 09:00 to 18:00 working hours.
+    // A 14 hour meeting cannot fit inside anyone's 08:00 to 21:00 reasonable hours.
     const day = { year: 2026, month: 9, day: 30 };
     expect(
-      suggestMeetingTimes(day, "Europe/London", ["Europe/London", "Asia/Tokyo"], 600)
+      suggestMeetingTimes(day, "Europe/London", ["Europe/London", "Asia/Tokyo"], 840)
     ).toEqual([]);
+  });
+});
+
+describe("suggestMeetingTimes tiers", () => {
+  it("does not list weaker times next to one that suits everyone", () => {
+    // Bogota, Bangkok and Tokyo on 30 Sep 2026: only around 20:00 Bogota suits all three.
+    const slots = suggestMeetingTimes(
+      { year: 2026, month: 9, day: 30 },
+      "America/Bogota",
+      ["America/Bogota", "Asia/Bangkok", "Asia/Tokyo"],
+      60
+    );
+    expect(slots.length).toBeGreaterThan(0);
+    for (const slot of slots) expect(slot.goodCount).toBe(3);
+  });
+});
+
+describe("findMeetingWindows", () => {
+  it("finds the stretch where London and New York are both in reasonable hours", () => {
+    const windows = findMeetingWindows(
+      { year: 2026, month: 1, day: 15 },
+      "Europe/London",
+      ["Europe/London", "America/New_York"],
+      60
+    );
+    // 13:00 to 21:00 London = 08:00 to 16:00 New York
+    expect(windows).toEqual([{ startMinutes: 13 * 60, endMinutes: 21 * 60 }]);
+  });
+
+  it("shrinks the window's starts as the meeting gets longer", () => {
+    const windows = findMeetingWindows(
+      { year: 2026, month: 1, day: 15 },
+      "Europe/London",
+      ["Europe/London", "America/New_York"],
+      120
+    );
+    expect(windows).toEqual([{ startMinutes: 13 * 60, endMinutes: 21 * 60 }]);
+  });
+
+  it("returns nothing when there is no shared reasonable time", () => {
+    // Bogota and Sydney share no hour where both are between 08:00 and 21:00 for 3 hours
+    const windows = findMeetingWindows(
+      { year: 2026, month: 9, day: 30 },
+      "America/Bogota",
+      ["America/Bogota", "Australia/Sydney", "Europe/London"],
+      180
+    );
+    expect(windows).toEqual([]);
   });
 });
 

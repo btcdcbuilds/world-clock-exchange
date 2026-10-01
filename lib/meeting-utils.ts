@@ -15,11 +15,14 @@ export interface WallTime {
   minute: number; // 0-59
 }
 
-export type HourStatus = "work" | "edge" | "night";
+export type HourStatus = "good" | "edge" | "night";
 
-/** Working hours: 09:00–17:59. Edge (early/late but reasonable): 07:00–08:59 and 18:00–21:59. */
-export const WORK_START_HOUR = 9;
-export const WORK_END_HOUR = 18;
+/**
+ * Reasonable hours for a call (not office hours): 08:00–20:59.
+ * Early / late but possible: 07:00–07:59 and 21:00–21:59. Anything else is night.
+ */
+export const GOOD_START_HOUR = 8;
+export const GOOD_END_HOUR = 21;
 export const EDGE_START_HOUR = 7;
 export const EDGE_END_HOUR = 22;
 
@@ -123,14 +126,14 @@ export function dayDifference(a: CalendarDay, b: CalendarDay): number {
 }
 
 export function getHourStatus(hour: number): HourStatus {
-  if (hour >= WORK_START_HOUR && hour < WORK_END_HOUR) return "work";
+  if (hour >= GOOD_START_HOUR && hour < GOOD_END_HOUR) return "good";
   if (hour >= EDGE_START_HOUR && hour < EDGE_END_HOUR) return "edge";
   return "night";
 }
 
 /**
  * How good a meeting from `start` to `end` is for someone in `timeZone`.
- * "work" only if the whole meeting sits inside 09:00–18:00 local time.
+ * "good" only if the whole meeting sits inside 08:00–21:00 local time.
  */
 export function getMeetingStatus(start: Date, end: Date, timeZone: string): HourStatus {
   const s = getWallTime(start, timeZone);
@@ -139,31 +142,74 @@ export function getMeetingStatus(start: Date, end: Date, timeZone: string): Hour
   const sameDay = dayDifference(s, e) === 0;
   const sMin = s.hour * 60 + s.minute;
   const eMin = e.hour * 60 + e.minute + 1;
-  if (sameDay && sMin >= WORK_START_HOUR * 60 && eMin <= WORK_END_HOUR * 60) return "work";
+  if (sameDay && sMin >= GOOD_START_HOUR * 60 && eMin <= GOOD_END_HOUR * 60) return "good";
   if (sameDay && sMin >= EDGE_START_HOUR * 60 && eMin <= EDGE_END_HOUR * 60) return "edge";
   return "night";
 }
 
-const STATUS_SCORE: Record<HourStatus, number> = { work: 2, edge: 1, night: 0 };
+/** Start times are tried every 15 minutes, the same step the time scrubber snaps to. */
+export const SLOT_STEP_MINUTES = 15;
+
+interface SlotScore {
+  /** Minutes after 00:00 on the host's day. */
+  minutes: number;
+  start: Date;
+  hostWall: WallTime;
+  goodCount: number;
+  edgeCount: number;
+  nightCount: number;
+  /** How far the meeting is from mid-afternoon for the person worst off (lower is better). */
+  strain: number;
+}
+
+function scoreSlots(
+  hostDate: Pick<WallTime, "year" | "month" | "day">,
+  hostTimeZone: string,
+  zones: string[],
+  durationMinutes: number
+): SlotScore[] {
+  const slots: SlotScore[] = [];
+  for (let minutes = 0; minutes < 24 * 60; minutes += SLOT_STEP_MINUTES) {
+    const hostWall: WallTime = { ...hostDate, hour: Math.floor(minutes / 60), minute: minutes % 60 };
+    const start = zonedWallTimeToUtc(hostWall, hostTimeZone);
+    // Skip wall times that don't exist on this day (DST gap)
+    const check = getWallTime(start, hostTimeZone);
+    if (check.hour !== hostWall.hour || check.minute !== hostWall.minute) continue;
+    const end = new Date(start.getTime() + durationMinutes * 60000);
+    let goodCount = 0;
+    let edgeCount = 0;
+    let nightCount = 0;
+    let strain = 0;
+    for (const tz of zones) {
+      const status = getMeetingStatus(start, end, tz);
+      if (status === "good") goodCount++;
+      else if (status === "edge") edgeCount++;
+      else nightCount++;
+      const local = getWallTime(start, tz);
+      const middle = local.hour + local.minute / 60 + durationMinutes / 120;
+      strain = Math.max(strain, Math.abs(middle - 14));
+    }
+    slots.push({ minutes, start, hostWall, goodCount, edgeCount, nightCount, strain });
+  }
+  return slots;
+}
 
 export interface SuggestedSlot {
   start: Date;
   hostWall: WallTime;
-  workCount: number;
+  goodCount: number;
   edgeCount: number;
   nightCount: number;
 }
 
 /**
- * Rank start times on the host's chosen day (every 30 minutes) by how many
- * participants would be inside working hours. Returns the best `limit` slots,
- * earliest first among equals.
+ * Up to `limit` start times on the host's day that suit everyone best, at least two hours
+ * apart so they are real alternatives, earliest first. Only the best tier is returned, so a
+ * time that suits everyone is never listed next to one that suits fewer people.
  *
- * A slot is only offered when
- *   - at least one participant is inside working hours for the whole meeting, and
- *   - the host (the person setting the time, `hostTimeZone`) is inside working
- *     hours or at the edge of them (07:00 to 22:00), never at night.
- * When no slot meets both rules the result is empty, and the screen says so.
+ * Fewest people at night comes first, then most people inside reasonable hours, then the
+ * time closest to mid-afternoon for whoever is worst off. The host (the phone's own time
+ * zone) is never offered a time at night, and at least one person must be inside reasonable hours.
  */
 export function suggestMeetingTimes(
   hostDate: Pick<WallTime, "year" | "month" | "day">,
@@ -174,50 +220,73 @@ export function suggestMeetingTimes(
 ): SuggestedSlot[] {
   const zones = Array.from(new Set(participantTimeZones));
   if (zones.length === 0) return [];
-
-  const slots: (SuggestedSlot & { score: number })[] = [];
-  for (let minutes = 0; minutes < 24 * 60; minutes += 30) {
-    const hostWall: WallTime = {
-      ...hostDate,
-      hour: Math.floor(minutes / 60),
-      minute: minutes % 60,
-    };
-    const start = zonedWallTimeToUtc(hostWall, hostTimeZone);
-    // Skip wall times that don't exist on this day (DST gap)
-    const check = getWallTime(start, hostTimeZone);
-    if (check.hour !== hostWall.hour || check.minute !== hostWall.minute) continue;
-    const end = new Date(start.getTime() + durationMinutes * 60000);
-    // The host must be in or near working hours themselves.
-    if (getMeetingStatus(start, end, hostTimeZone) === "night") continue;
-    let workCount = 0;
-    let edgeCount = 0;
-    let nightCount = 0;
-    let score = 0;
-    for (const tz of zones) {
-      const status = getMeetingStatus(start, end, tz);
-      score += STATUS_SCORE[status];
-      if (status === "work") workCount++;
-      else if (status === "edge") edgeCount++;
-      else nightCount++;
-    }
-    // Never offer a time at which nobody is in working hours.
-    if (workCount === 0) continue;
-    slots.push({ start, hostWall, workCount, edgeCount, nightCount, score });
+  const ranked = scoreSlots(hostDate, hostTimeZone, zones, durationMinutes)
+    .filter((s) => s.goodCount > 0)
+    .filter((s) => {
+      const end = new Date(s.start.getTime() + durationMinutes * 60000);
+      return getMeetingStatus(s.start, end, hostTimeZone) !== "night";
+    })
+    .sort(
+      (a, b) =>
+        a.nightCount - b.nightCount ||
+        b.goodCount - a.goodCount ||
+        a.strain - b.strain ||
+        a.minutes - b.minutes
+    );
+  // Only offer the best tier: if some times suit everyone, never pad the list with worse ones.
+  const best = ranked[0];
+  const topTier = best
+    ? ranked.filter((s) => s.nightCount === best.nightCount && s.goodCount === best.goodCount)
+    : [];
+  const picked: SlotScore[] = [];
+  for (const slot of topTier) {
+    if (picked.length >= limit) break;
+    if (picked.every((p) => Math.abs(p.minutes - slot.minutes) >= 120)) picked.push(slot);
   }
+  return picked
+    .sort((a, b) => a.minutes - b.minutes)
+    .map(({ start, hostWall, goodCount, edgeCount, nightCount }) => ({
+      start,
+      hostWall,
+      goodCount,
+      edgeCount,
+      nightCount,
+    }));
+}
 
-  // Worst case matters most: avoid anyone at night, then maximise working hours
-  slots.sort(
-    (a, b) =>
-      a.nightCount - b.nightCount ||
-      b.workCount - a.workCount ||
-      b.score - a.score ||
-      a.start.getTime() - b.start.getTime()
-  );
+/** A stretch of the host's day, in minutes after 00:00, that a meeting can sit anywhere inside. */
+export interface MeetingWindow {
+  startMinutes: number;
+  endMinutes: number;
+}
 
-  return slots
-    .slice(0, limit)
-    .map(({ score: _score, ...rest }) => rest)
-    .sort((a, b) => a.start.getTime() - b.start.getTime());
+/**
+ * The stretches of the host's day in which a meeting of `durationMinutes` keeps every
+ * participant inside reasonable hours from start to finish. Each window runs from its
+ * earliest possible start to the end of its latest possible meeting.
+ */
+export function findMeetingWindows(
+  hostDate: Pick<WallTime, "year" | "month" | "day">,
+  hostTimeZone: string,
+  participantTimeZones: string[],
+  durationMinutes: number
+): MeetingWindow[] {
+  const zones = Array.from(new Set(participantTimeZones));
+  if (zones.length === 0) return [];
+  const windows: MeetingWindow[] = [];
+  let open: MeetingWindow | null = null;
+  for (const slot of scoreSlots(hostDate, hostTimeZone, zones, durationMinutes)) {
+    const fits = slot.goodCount === zones.length;
+    if (fits && open && slot.minutes === open.endMinutes - durationMinutes + SLOT_STEP_MINUTES) {
+      open.endMinutes = slot.minutes + durationMinutes;
+    } else if (fits) {
+      open = { startMinutes: slot.minutes, endMinutes: slot.minutes + durationMinutes };
+      windows.push(open);
+    } else {
+      open = null;
+    }
+  }
+  return windows;
 }
 
 function toCalendarStamp(date: Date): string {
