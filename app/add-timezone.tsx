@@ -15,6 +15,7 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { getTimezonesByRegion, searchTimezones } from "@/lib/timezone-data";
 import { addTimezone, loadTimezones } from "@/lib/storage";
+import { getTimezoneAbbreviation } from "@/lib/time-utils";
 import type { Timezone } from "@/lib/types";
 
 export default function AddTimezoneScreen() {
@@ -73,7 +74,8 @@ export default function AddTimezoneScreen() {
             {item.city}
           </Text>
           <Text className="text-sm text-muted mt-0.5">
-            {item.country} • {item.utcOffset}
+            {/* Live offset (includes daylight saving) — the stored utcOffset is fixed and wrong half the year. */}
+            {item.country} • {getTimezoneAbbreviation(item.timezone)}
           </Text>
         </View>
         {addedKeys.has(keyOf(item)) ? (
@@ -146,6 +148,7 @@ export default function AddTimezoneScreen() {
             )}
             contentContainerStyle={{ paddingBottom: 20 }}
             stickySectionHeadersEnabled={false}
+            keyboardShouldPersistTaps="handled"
           />
         ) : (
           <FlatList
@@ -153,6 +156,8 @@ export default function AddTimezoneScreen() {
             keyExtractor={(item, index) => `${item.timezone}-${index}`}
             renderItem={renderTimezoneItem}
             contentContainerStyle={{ paddingBottom: 20 }}
+            // A tap on a search result must select it, not just close the keyboard.
+            keyboardShouldPersistTaps="handled"
             ListEmptyComponent={
               <View className="items-center justify-center py-12">
                 <IconSymbol

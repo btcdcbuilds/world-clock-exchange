@@ -9,7 +9,13 @@ import { useColors } from "@/hooks/use-colors";
 export default function TabLayout() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const bottomPadding = Platform.OS === "web" ? 12 : Math.max(insets.bottom, 8);
+  // Always add the gap on top of the bottom inset, never Math.max(inset, gap).
+  // In Expo Go on Android the app starts drawn above the gesture bar (bottom inset 0);
+  // the first light/dark change (Appearance.setColorScheme) re-applies edge-to-edge,
+  // so the app then runs under the gesture bar with a 24 dp bottom inset instead.
+  // "inset + gap" puts the icons and labels at the same place on screen in both states;
+  // Math.max(inset, 8) moved the whole bar about 8 dp down after the first theme change.
+  const bottomPadding = Platform.OS === "web" ? 12 : insets.bottom + 8;
   const tabBarHeight = 56 + bottomPadding;
 
   return (

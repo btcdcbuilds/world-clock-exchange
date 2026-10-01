@@ -158,6 +158,12 @@ export interface SuggestedSlot {
  * Rank start times on the host's chosen day (every 30 minutes) by how many
  * participants would be inside working hours. Returns the best `limit` slots,
  * earliest first among equals.
+ *
+ * A slot is only offered when
+ *   - at least one participant is inside working hours for the whole meeting, and
+ *   - the host (the person setting the time, `hostTimeZone`) is inside working
+ *     hours or at the edge of them (07:00 to 22:00), never at night.
+ * When no slot meets both rules the result is empty, and the screen says so.
  */
 export function suggestMeetingTimes(
   hostDate: Pick<WallTime, "year" | "month" | "day">,
@@ -181,6 +187,8 @@ export function suggestMeetingTimes(
     const check = getWallTime(start, hostTimeZone);
     if (check.hour !== hostWall.hour || check.minute !== hostWall.minute) continue;
     const end = new Date(start.getTime() + durationMinutes * 60000);
+    // The host must be in or near working hours themselves.
+    if (getMeetingStatus(start, end, hostTimeZone) === "night") continue;
     let workCount = 0;
     let edgeCount = 0;
     let nightCount = 0;
@@ -192,6 +200,8 @@ export function suggestMeetingTimes(
       else if (status === "edge") edgeCount++;
       else nightCount++;
     }
+    // Never offer a time at which nobody is in working hours.
+    if (workCount === 0) continue;
     slots.push({ start, hostWall, workCount, edgeCount, nightCount, score });
   }
 

@@ -33,7 +33,7 @@ const config: ExpoConfig = {
   newArchEnabled: true,
   extra: {
     eas: {
-      projectId: "f0442129-49e2-4c9f-989c-b0caa674a5a6",
+      projectId: "b23d6801-13f7-4d5f-969d-ca58eb555bb1",
     },
   },
   ios: {
@@ -101,7 +101,7 @@ const config: ExpoConfig = {
       "expo-build-properties",
       {
         android: {
-          buildArchs: ["armeabi-v7a", "arm64-v8a"],
+          buildArchs: ["armeabi-v7a", "arm64-v8a", "x86_64"],
         },
       },
     ],
