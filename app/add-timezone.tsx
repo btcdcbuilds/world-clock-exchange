@@ -13,7 +13,7 @@ import * as Haptics from "expo-haptics";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
-import { getTimezonesByRegion, searchTimezones } from "@/lib/timezone-data";
+import { getNamedTimeZones, getTimezonesByRegion, searchTimezones } from "@/lib/timezone-data";
 import { addTimezone, loadTimezones } from "@/lib/storage";
 import { getTimezoneAbbreviation } from "@/lib/time-utils";
 import type { Timezone } from "@/lib/types";
@@ -26,6 +26,8 @@ export default function AddTimezoneScreen() {
     Omit<Timezone, "id">[]
   >([]);
   const [addedKeys, setAddedKeys] = useState<Set<string>>(new Set());
+  // With an empty search box the list browses either cities (by region) or named time zones.
+  const [browse, setBrowse] = useState<"cities" | "zones">("cities");
 
   const keyOf = (tz: Omit<Timezone, "id">) => `${tz.city}|${tz.timezone}`;
 
@@ -80,7 +82,7 @@ export default function AddTimezoneScreen() {
         </View>
         {addedKeys.has(keyOf(item)) ? (
           <IconSymbol name="checkmark.circle.fill" size={24} color={colors.success} />
-        ) : (
+        ) : !item.currency ? null : (
           <View className="bg-primary/10 rounded-lg px-3 py-1.5">
             <Text className="text-sm font-medium text-primary">
               {item.currency}
@@ -122,7 +124,7 @@ export default function AddTimezoneScreen() {
           <TextInput
             value={searchQuery}
             onChangeText={handleSearch}
-            placeholder="Search city or country..."
+            placeholder="Search city, country or time zone (MST, HKT)..."
             placeholderTextColor={colors.muted}
             className="flex-1 ml-2 text-base text-foreground"
           />
@@ -133,8 +135,44 @@ export default function AddTimezoneScreen() {
           )}
         </View>
 
+        {/* Cities | Time zones */}
+        {searchQuery.trim() === "" && (
+          <View className="flex-row bg-surface rounded-xl p-1 mb-3 border border-border">
+            {(["cities", "zones"] as const).map((mode) => {
+              const selected = browse === mode;
+              return (
+                <TouchableOpacity
+                  key={mode}
+                  onPress={() => setBrowse(mode)}
+                  activeOpacity={0.8}
+                  accessibilityState={{ selected }}
+                  style={{
+                    flex: 1,
+                    alignItems: "center",
+                    paddingVertical: 9,
+                    borderRadius: 9,
+                    backgroundColor: selected ? colors.primary : "transparent",
+                  }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: "700", color: selected ? "#FFFFFF" : colors.foreground }}>
+                    {mode === "cities" ? "Cities" : "Time zones"}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
         {/* Results */}
-        {searchQuery.trim() === "" ? (
+        {searchQuery.trim() === "" && browse === "zones" ? (
+          <FlatList
+            data={getNamedTimeZones()}
+            keyExtractor={(item) => `${item.city}-${item.timezone}`}
+            renderItem={renderTimezoneItem}
+            contentContainerStyle={{ paddingBottom: 20 }}
+            keyboardShouldPersistTaps="handled"
+          />
+        ) : searchQuery.trim() === "" ? (
           <SectionList
             sections={sections}
             keyExtractor={(item, index) => `${item.timezone}-${index}`}

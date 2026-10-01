@@ -47,7 +47,6 @@ check() { # id, description, command...
 top() { for i in 1 2 3 4 5; do adb -s $D shell input swipe 540 600 540 2000 150; done; sleep 0.8; }
 down() { adb -s $D shell input swipe 540 1900 540 ${1:-700} 400; sleep 0.8; }
 crashed() { adb -s $D logcat -d -b crash | grep -q "Process: $PKG"; }
-start_time() { value_after "START TIME IN" 4 | grep -E "^[0-9]{1,2}:[0-9]{2}(.{1,3}(AM|PM))?$" | head -1; }
 
 # ---------- fresh start ----------
 adb -s $D logcat -b crash -c
@@ -77,13 +76,13 @@ PY
 ); [ -n "$p" ] && adb -s $D shell input tap $p; sleep 1.5; has "^World Clock$" && ! has "^Add Timezone$"; }
 check T04 "Back arrow on Add Timezone returns to World Clock" t04
 
-t05() { adb -s $D shell input tap 943 2032; sleep 2; tap "Search city or country\.\.\." 1; adb -s $D shell input text "sao"; sleep 2; has "^São Paulo$"; }
+t05() { adb -s $D shell input tap 943 2032; sleep 2; tap "Search city, country or time zone .*" 1; adb -s $D shell input text "sao"; sleep 2; has "^São Paulo$"; }
 check T05 "Search without accents ('sao') finds São Paulo" t05
 
 t06() { tap "São Paulo" 3; has "^World Clock$" && has "^São Paulo$"; }
 check T06 "First tap on a result (keyboard open) adds the city and returns" t06
 
-t07() { adb -s $D shell input tap 943 2032; sleep 2; tap "Search city or country\.\.\." 1; adb -s $D shell input text "lond"; sleep 1.5
+t07() { adb -s $D shell input tap 943 2032; sleep 2; tap "Search city, country or time zone .*" 1; adb -s $D shell input text "lond"; sleep 1.5
   has "^London$" || return 1; dump; p=$(python - "$UI" <<'PY'
 import sys,re
 x=open(sys.argv[1],encoding='utf-8').read()
@@ -92,15 +91,21 @@ for n in re.findall(r'<node [^>]*>',x):
         b=list(map(int,re.findall(r'\d+',re.search(r'bounds="([^"]*)"',n).group(1))))
         if 300<b[1]<450 and b[0]>850: print((b[0]+b[2])//2,(b[1]+b[3])//2); break
 PY
-); [ -n "$p" ] && adb -s $D shell input tap $p; sleep 1.5; has "^Search city or country\.\.\.$" && has "^ASIA$"; }
+); [ -n "$p" ] && adb -s $D shell input tap $p; sleep 1.5; has "^Search city, country or time zone .*$" && has "^ASIA$" && has "^Time zones$"; }
 check T07 "Clear (x) button empties the search and shows the full list" t07
 
-add_city() { adb -s $D shell input tap 943 2032; sleep 2; tap "Search city or country\.\.\." 1; adb -s $D shell input text "$1"; sleep 1.5; tap "$2" 3; }
+add_city() { adb -s $D shell input tap 943 2032; sleep 2; tap "Search city, country or time zone .*" 1; adb -s $D shell input text "$1"; sleep 1.5; tap "$2" 3; }
 t08() { tap "Tokyo" 3; add_city tokyo Tokyo; n=$(labels | grep -cx "Tokyo"); DETAIL="Tokyo rows after adding it twice: $n"; has "^World Clock$" && [ "$n" -eq 1 ]; }
 check T08 "Picking a city already on the list does not add a duplicate" t08
 
 t08b() { add_city bangkok Bangkok; sleep 8; n=$(labels | grep -cx "= 1 USD"); DETAIL="rows with a rate: $n of 3"; has "^Bangkok$" && [ "$n" -eq 3 ] && ! labels | grep -qx "No rate"; }
 check T08b "Each city shows its time, date and exchange rate against USD" t08b
+
+t08c() { adb -s $D shell input tap 943 2032; sleep 2; tap "Time zones" 1.5 && has "^Pacific Time$" || return 1; tap "Search city, country or time zone .*" 1; adb -s $D shell input text "mst"; sleep 1.5; ok=1; has "^Mountain Time$" && has "^Arizona Time$" && ok=0; shot T08c-mst; adb -s $D shell input keyevent 4; sleep 0.8; has "^World Clock$" || { adb -s $D shell input keyevent 4; sleep 1.5; }; has "^World Clock$" && return $ok; }
+check T08c "Time zones tab lists named zones; searching 'mst' offers both Mountain Time and Arizona's MST" t08c
+
+t08d() { add_city hkt "Hong Kong Time"; sleep 3; has "^Hong Kong Time$" && labels | grep -q "HKD$"; }
+check T08d "Adding a time zone by its short name (HKT) puts it on World Clock with its currency" t08d
 
 t09() { adb -s $D shell input swipe 540 700 540 1600 500; sleep 3; ! crashed && has "^World Clock$"; }
 check T09 "Pull down to refresh works" t09
@@ -109,37 +114,46 @@ t10() { longpress "São Paulo" && has "^Delete Timezone$" && tap "CANCEL" && has
 check T10 "Long-press → Cancel keeps the city" t10
 
 # ---------- Meeting ----------
-t11() { tap "Meeting" 2; has "^Plan a Meeting$" && has "^My time · " && has "^Bangkok$"; }
-check T11 "Meeting tab opens with host chips for My time and each city" t11
+# Meeting time of the first row (You) and of every row, as shown above each city's hours
+you_time() { labels | grep -E "^[0-9]{1,2}:[0-9]{2}( AM| PM)? – " | head -1 | sed 's/ – .*//'; }
+all_times() { labels | grep -E "^[0-9]{1,2}:[0-9]{2}( AM| PM)? – " | tr '\n' '|'; }
+header() { labels | grep -E "20[0-9]{2} · [0-9]" | head -1; }
+mins() { python -c "import sys,re;m=re.match(r'(\d+):(\d+)(?: (AM|PM))?',sys.argv[1]);h,mi,ap=int(m[1]),int(m[2]),m[3];h=h%12+(12 if ap=='PM' else 0) if ap else h;print(h*60+mi)" "$1"; }
+# Vertical centre of the You row's hour strip, for dragging it sideways
+strip_y() { xy "You · .* [0-9]{1,2}:00( AM| PM)?" | cut -d' ' -f2; }
+drag() { local y; y=$(strip_y); [ -z "$y" ] && return 1; adb -s $D shell input swipe $1 $y $2 $y 500; sleep 2; }
 
-t12() { tap "Meeting title \(optional\)" 1; adb -s $D shell input text "Board%scall"; adb -s $D shell input keyevent 111; sleep 1; has "^Board call$"; }
-check T12 "Meeting title can be typed" t12
+t11() { tap "Meeting" 2.5; has "^Plan a Meeting$" && has "^SUGGESTED TIMES$" && has "^You · " && has "^Bangkok$"; }
+check T11 "Meeting tab opens with suggestions and a timeline row for You and each city" t11
 
-t13() { a=$(start_time); tap "15 minutes later" 1; b=$(start_time); tap "15 minutes earlier" 1; tap "15 minutes earlier" 1; c=$(start_time); DETAIL="$a → $b → $c"; [ -n "$a" ] && [ "$a" != "$b" ] && [ "$b" != "$c" ] && [ "$a" != "$c" ]; }
-check T13 "± buttons move the start time by 15 minutes" t13
+t12() { s=$(labels | grep -E "^[0-9]{1,2}:[0-9]{2}( AM| PM)?, Good for" | head -1); a=$(you_time); DETAIL="first suggestion '${s%%,*}' → meeting starts $a"; [ -n "$s" ] && [ "${s%%,*}" = "$a" ]; }
+check T12 "Meeting opens on the best suggested time" t12
 
-t14() { a=$(labels | grep -E "^[A-Z][a-z]{2}, [A-Z][a-z]{2} [0-9]{1,2} 20[0-9]{2}" | head -1); tap "Next day" 1; b=$(labels | grep -E "^[A-Z][a-z]{2}, [A-Z][a-z]{2} [0-9]{1,2} 20[0-9]{2}" | head -1); tap "Previous day" 1; c=$(labels | grep -E "^[A-Z][a-z]{2}, [A-Z][a-z]{2} [0-9]{1,2} 20[0-9]{2}" | head -1); DETAIL="$a → $b → $c"; [ -n "$a" ] && [ "$a" != "$b" ] && [ "$a" = "$c" ]; }
-check T14 "Previous day / Next day arrows change the date" t14
+t13() { a=$(you_time); ra=$(all_times); drag 300 900; b=$(you_time); rb=$(all_times); m=$(mins "$b"); DETAIL="$a → $b"; [ -n "$b" ] && [ "$a" != "$b" ] && [ $((m % 15)) -eq 0 ] && [ "$ra" != "$rb" ]; }
+check T13 "Dragging the hours to the right moves the meeting earlier, snapped to 15 minutes, every city updates" t13
 
-t15() { p=$(labels | grep -E "^[A-Z][a-z]{2}, [0-9]{1,2}, [A-Z][a-z]{2}$" | sed -n 3p); tap "$p" 1; a=$(labels | grep -E "^[A-Z][a-z]{2}, [A-Z][a-z]{2} [0-9]{1,2} 20[0-9]{2}" | head -1); DETAIL="tapped '$p' → $a"; d=$(echo "$p" | cut -d, -f2 | tr -d ' '); echo "$a" | grep -q " $d 20"; }
-check T15 "Tapping a date chip selects that date" t15
+t14() { a=$(you_time); drag 800 450; b=$(you_time); DETAIL="$a → $b"; [ -n "$b" ] && [ "$(mins "$b")" -gt "$(mins "$a")" ] && [ $(( $(mins "$b") % 15 )) -eq 0 ]; }
+check T14 "Dragging the hours to the left moves the meeting later, snapped to 15 minutes" t14
 
-t16() { tap "Today, .*" 1; for d in "30 min" "45 min" "1h 30m" "1h"; do tap "$d" 0.6 || return 1; done; ! crashed; }
-check T16 "Duration chips can be selected" t16
+t15() { s=$(labels | grep -E "^[0-9]{1,2}:[0-9]{2}( AM| PM)?, Good for" | head -1); tap "$(printf '%s' "$s" | sed 's/[.()+*?]/\\&/g')" 2; a=$(you_time); DETAIL="suggestion ${s%%,*} → start $a"; [ -n "$s" ] && [ "${s%%,*}" = "$a" ]; }
+check T15 "Tapping a suggested time moves the meeting to it" t15
 
-t17() { a=$(start_time); tap "Tokyo" 1.5; h=$(labels | grep "^START TIME IN"); b=$(start_time); DETAIL="$h $a → $b"; [ "$h" = "START TIME IN TOKYO" ] && [ "$a" != "$b" ]; }
-check T17 "Host chip re-expresses the same moment in the chosen city" t17
+t16() { cell=$(labels | grep -E "^You · .* [0-9]{1,2}:00( AM| PM)?$" | sed -n 2p); tap "$(printf '%s' "$cell" | sed 's/[.()+*?]/\\&/g')" 2; b=$(you_time); want=$(echo "$cell" | grep -oE "[0-9]{1,2}:00( AM| PM)?$"); DETAIL="cell '$cell' → start $b"; [ -n "$want" ] && [ "$b" = "$want" ]; }
+check T16 "Tapping an hour in the timeline moves the meeting to that hour" t16
 
-t18() { tap "My time · .*" 1; down 900; p=$(labels | grep -E "^[0-9]{1,2}:[0-9]{2}( AM| PM)?, [0-9] of [0-9] in working hours" | head -1); t=${p%%,*}; tap "$(printf '%s' "$p" | sed 's/[.()+*?]/\\&/g')" 1.5; top; b=$(start_time); DETAIL="suggestion $t → start $b"; [ -n "$t" ] && [ "$t" = "$b" ]; }
-check T18 "Tapping a best-time suggestion sets that start time" t18
+t17() { p=$(labels | grep -E "^[A-Z][a-z]{2}, [0-9]{1,2}, [A-Z][a-z]{2}$" | sed -n 3p); tap "$p" 1.5; a=$(header); DETAIL="tapped '$p' → $a"; d=$(echo "$p" | cut -d, -f2 | tr -d ' '); echo "$a" | grep -q " $d 20"; }
+check T17 "Tapping a date chip selects that date" t17
 
-t19() { down 500; down 700; cell=$(labels | grep -E "^You · .* [0-9]{1,2}:00( AM| PM)?$" | sed -n 6p); tap "$(printf '%s' "$cell" | sed 's/[.()+*?]/\\&/g')" 1.5; top; b=$(start_time); want=$(echo "$cell" | grep -oE "[0-9]{1,2}:00( AM| PM)?$"); DETAIL="cell '$cell' → start $b"; [ -n "$want" ] && [ "$b" = "$want" ]; }
-check T19 "Tapping an hour in the 24-hour grid sets the start time" t19
+t18() { tap "Today, .*" 1; ok=0; for pair in "30 min meeting:30 min" "45 min meeting:45 min" "1h 30m meeting:1h 30m" "2h meeting:2h" "1h meeting:1h"; do tap "${pair%%:*}" 0.8 || return 1; header | grep -q "· ${pair#*:}" || { ok=1; DETAIL="$DETAIL ${pair#*:}-missing"; }; done; ! crashed && return $ok; }
+check T18 "Duration chips change the meeting length" t18
 
-t20() { down 500; down 700; tap "Add a city" 2 && has "^Add Timezone$" && { adb -s $D shell input keyevent 4; sleep 1.5; has "^Plan a Meeting$|^24-HOUR OVERVIEW"; }; }
-check T20 "'Add a city' button in the grid opens Add Timezone" t20
+t19() { tap "Meeting title \(optional\)" 1 || { down 600; tap "Meeting title \(optional\)" 1; }; adb -s $D shell input text "Board%scall"; adb -s $D shell input keyevent 111; sleep 1; has "^Board call$"; }
+check T19 "Meeting title can be typed and shows on the meeting card" t19
 
-t21() { for i in 1 2 3 4; do down 400; done; tap "Share times" 3; has "^Sharing text$" && labels | grep -q "Board call" ; }
+t20() { top; tap "Add a city" 2 && has "^Add Timezone$" && { adb -s $D shell input keyevent 4; sleep 1.5; has "^Plan a Meeting$"; }; }
+check T20 "'Add a city' button on the meeting card opens Add Timezone" t20
+
+t21() { for i in 1 2 3; do down 400; done; tap "Share times" 3; has "^Sharing text$" && labels | grep -q "Board call" ; }
 check T21 "Share times opens the share sheet with the meeting text" t21
 
 t22() { adb -s $D shell input keyevent 4; sleep 1.5; tap "Add to calendar" 5; a=$(adb -s $D shell dumpsys activity activities | grep -m1 topResumedActivity); DETAIL=$(echo "$a" | grep -oE "[a-z]+(\.[a-z]+)+/" | head -1); echo "$a" | grep -qE "calendar|chrome|browser"; }
@@ -154,13 +168,13 @@ t23() { for i in 1 2 3 4; do fg && break; adb -s $D shell input keyevent 4; slee
 check T23 "Returning from Calendar keeps the Meeting as it was; Share as image opens the share sheet" t23
 
 t24() { adb -s $D shell input keyevent 4; sleep 1.5; fg || adb -s $D shell monkey -p $PKG -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1; sleep 1; tap "Meeting" 1.5; top
-  # Fast fling back to the start of the host strip, then tap a chip straight away
-  adb -s $D shell input swipe 900 650 200 650 120; sleep 0.3; adb -s $D shell input swipe 200 650 1000 650 80; sleep 0.2
-  tap "Bangkok" 1.5; h=$(labels | grep "^START TIME IN"); DETAIL="$h"; [ "$h" = "START TIME IN BANGKOK" ]; }
-check T24 "Chips still respond to the first tap right after a fast swipe to the strip edge" t24
+  # Fast fling back to the start of the date strip, then tap a chip straight away
+  y=$(xy "Today, .*" | cut -d' ' -f2); adb -s $D shell input swipe 900 $y 200 $y 120; sleep 0.3; adb -s $D shell input swipe 200 $y 1000 $y 80; sleep 0.2
+  p=$(labels | grep -E "^[A-Z][a-z]{2}, [0-9]{1,2}, [A-Z][a-z]{2}$" | sed -n 2p); tap "$p" 1.5; a=$(header); d=$(echo "$p" | cut -d, -f2 | tr -d ' '); DETAIL="tapped '$p' → $a"; echo "$a" | grep -q " $d 20"; }
+check T24 "Date chips still respond to the first tap right after a fast swipe to the strip edge" t24
 
-t25() { a=$(start_time); tap "World Clock" 1.5; longpress "Bangkok" && tap "DELETE" 2; tap "Meeting" 2; top; h=$(labels | grep "^START TIME IN"); b=$(start_time); DETAIL="$a Bangkok → $h $b"; [ "$h" = "START TIME IN MY TIME" ] && ! has "^Bangkok$"; }
-check T25 "Deleting the host city falls back to My time without crashing" t25
+t25() { tap "World Clock" 1.5; longpress "Bangkok" && tap "DELETE" 2; tap "Meeting" 2; top; DETAIL="rows: $(all_times)"; ! crashed && has "^Plan a Meeting$" && ! has "^Bangkok$"; }
+check T25 "Removing a city on World Clock removes its Meeting row without crashing" t25
 
 # ---------- Settings ----------
 t26() { tap "Settings" 2; tap "EUR" 1; tap "World Clock" 5; labels | grep -q "= 1 EUR" && ! labels | grep -q "= 1 USD"; }
@@ -177,6 +191,9 @@ check T29 "12 Hour time format applies" t29
 
 t30() { ok=0; for f in "DD/MM/YYYY:^[0-9]{2}/[0-9]{2}/20[0-9]{2}$" "YYYY-MM-DD:^20[0-9]{2}-[0-9]{2}-[0-9]{2}$" "MM/DD/YYYY:^[0-9]{2}/[0-9]{2}/20[0-9]{2}$"; do tap "Settings" 1.5; tap "${f%%:*}" 1; tap "World Clock" 2; labels | grep -qE "${f#*:}" || { ok=1; DETAIL="$DETAIL ${f%%:*}"; }; done; return $ok; }
 check T30 "All three date formats apply" t30
+
+t30b() { tap "Settings" 1.5; for i in 1 2 3; do down 500; done; has "^APP UPDATES$" || return 1; tap "Check for updates" 1; for i in $(seq 1 20); do r=$(labels | grep -E "^You have the latest version\.$|^A new version has downloaded\.$|^Couldn't check" | head -1); [ -n "$r" ] && break; sleep 1; done; DETAIL="$r"; shot T30b-updates; top; echo "$r" | grep -qE "latest version|has downloaded"; }
+check T30b "Settings 'Check for updates' asks Expo's update service and reports the answer" t30b
 
 px() { adb -s $D exec-out screencap -p > "$OUT/.px.png"; python -c "from PIL import Image;im=Image.open(r'$(cygpath -m "$OUT")/.px.png').convert('RGB');print(sum(im.getpixel((540,1500))))"; }
 # The theme takes about 0.6-2 s to repaint after a tap, so wait up to 5 s for it.

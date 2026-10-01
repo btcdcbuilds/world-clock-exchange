@@ -8,6 +8,7 @@ import "react-native-reanimated";
 import { Platform } from "react-native";
 import "@/lib/_core/nativewind-pressable";
 import { ThemeProvider } from "@/lib/theme-provider";
+import { UpdateReadyPrompt } from "@/components/app-updates";
 import {
   SafeAreaFrameContext,
   SafeAreaInsetsContext,
@@ -89,6 +90,7 @@ export default function RootLayout() {
             <Stack.Screen name="oauth/callback" />
           </Stack>
           <StatusBar style="auto" />
+          {Platform.OS !== "web" && <UpdateReadyPrompt />}
         </QueryClientProvider>
       </trpc.Provider>
     </GestureHandlerRootView>

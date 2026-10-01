@@ -18,14 +18,24 @@ const env = {
   // Leave empty to use the default icon from assets/images/icon.png
   logoUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310419663030079409/lxJjnpaRppYimFig.png",
   scheme: schemeFromBundleId,
-  iosBundleId: bundleId,
+  // iOS bundle identifiers allow letters, digits, "-" and "." only (no "_"); Android keeps its own.
+  iosBundleId: bundleId.replace(/_/g, "-"),
   androidPackage: bundleId,
 };
 
 const config: ExpoConfig = {
   name: env.appName,
   slug: env.appSlug,
-  version: "1.1.0",
+  version: "1.2.0",
+  // In-app updates: the app checks Expo's update service on every launch and the Settings
+  // screen has "Check for updates". An update only reaches builds whose native code matches
+  // (fingerprint), so screen and feature changes ship without a new download link.
+  runtimeVersion: { policy: "fingerprint" },
+  updates: {
+    url: "https://u.expo.dev/b23d6801-13f7-4d5f-969d-ca58eb555bb1",
+    checkAutomatically: "ON_LOAD",
+    fallbackToCacheTimeout: 0,
+  },
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: env.scheme,

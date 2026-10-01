@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, ScrollView, Alert } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, Platform } from "react-native";
 import * as Haptics from "expo-haptics";
-import Constants from "expo-constants";
 
+import { AppUpdatesCard } from "@/components/app-updates";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
@@ -141,14 +141,13 @@ export default function SettingsScreen() {
           )}
         </View>
 
+        {/* Updates (installed app only) */}
+        {Platform.OS !== "web" && <AppUpdatesCard />}
+
         {/* About */}
         <View className="bg-surface rounded-2xl p-4 mb-4 border border-border">
           <Text className="text-sm font-semibold text-muted mb-3">ABOUT</Text>
           <View className="gap-2">
-            <View className="flex-row justify-between">
-              <Text className="text-base text-foreground">Version</Text>
-              <Text className="text-base text-muted">{Constants.expoConfig?.version ?? "—"}</Text>
-            </View>
             <View className="flex-row justify-between">
               <Text className="text-base text-foreground mr-4">Exchange rates</Text>
               <Text className="text-base text-muted text-right flex-shrink">
