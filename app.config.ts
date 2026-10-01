@@ -18,7 +18,8 @@ const env = {
   // Leave empty to use the default icon from assets/images/icon.png
   logoUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310419663030079409/lxJjnpaRppYimFig.png",
   scheme: schemeFromBundleId,
-  iosBundleId: bundleId,
+  // iOS bundle identifiers allow letters, digits, "-" and "." only (no "_"); Android keeps its own.
+  iosBundleId: bundleId.replace(/_/g, "-"),
   androidPackage: bundleId,
 };
 
