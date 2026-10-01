@@ -10,6 +10,8 @@ import {
   getWallTime,
   isWeekend,
   suggestMeetingTimes,
+  dayPartOf,
+  timeOfDayLabel,
   findMeetingWindows,
   zonedWallTimeToUtc,
 } from "../lib/meeting-utils";
@@ -105,44 +107,39 @@ describe("status", () => {
 });
 
 describe("suggestMeetingTimes", () => {
-  it("finds the overlap between London and New York", () => {
+  it("offers the best time in each part of the day, in order", () => {
     const slots = suggestMeetingTimes(
       { year: 2026, month: 1, day: 15 },
       "Europe/London",
       ["Europe/London", "America/New_York"],
       60
     );
-    expect(slots.length).toBeGreaterThan(0);
-    for (const slot of slots) {
-      expect(slot.goodCount).toBe(2);
-      expect(slot.nightCount).toBe(0);
-      // Overlap is 13:00-21:00 London (08:00-16:00 New York), so a 1 hour start is 13:00-20:00
-      expect(slot.hostWall.hour).toBeGreaterThanOrEqual(13);
-      expect(slot.hostWall.hour).toBeLessThanOrEqual(20);
-    }
-    // Suggestions are real alternatives: at least two hours apart
-    for (let i = 1; i < slots.length; i++) {
-      expect(slots[i].start.getTime() - slots[i - 1].start.getTime()).toBeGreaterThanOrEqual(120 * 60000);
-    }
-  });
-
-  it("never picks night for anyone when a better option exists", () => {
-    const slots = suggestMeetingTimes(
-      { year: 2026, month: 1, day: 15 },
-      "America/Los_Angeles",
-      ["America/Los_Angeles", "Europe/London", "Asia/Singapore"],
-      30
-    );
-    expect(slots.length).toBeGreaterThan(0);
-    // Every suggestion is in the same (best) tier
-    for (const slot of slots) {
-      expect(slot.nightCount).toBe(slots[0].nightCount);
-      expect(slot.goodCount).toBe(slots[0].goodCount);
-    }
-    // Results come back in chronological order
+    expect(slots.map((s) => s.part)).toEqual(["Morning", "Midday", "Afternoon", "Evening"]);
     for (let i = 1; i < slots.length; i++) {
       expect(slots[i].start.getTime()).toBeGreaterThan(slots[i - 1].start.getTime());
     }
+    // From midday on, London and New York overlap (13:00-21:00 London), so those suit both
+    for (const slot of slots.slice(1)) {
+      expect(slot.goodCount).toBe(2);
+      expect(slot.hostWall.hour).toBeGreaterThanOrEqual(13);
+    }
+    // In the morning only London is up; it is still offered, honestly labelled 1 of 2
+    expect(slots[0].goodCount).toBe(1);
+  });
+
+  it("gives several choices for Leigh's five cities, including an evening that suits everyone", () => {
+    // Dallas (the phone), Denver, Hong Kong, Brisbane, Vancouver on 1 Oct 2026, 1 hour
+    const slots = suggestMeetingTimes(
+      { year: 2026, month: 10, day: 1 },
+      "America/Chicago",
+      ["America/Chicago", "America/Denver", "Asia/Hong_Kong", "Australia/Brisbane", "America/Vancouver"],
+      60
+    );
+    expect(slots.length).toBeGreaterThanOrEqual(3);
+    const evening = slots.find((s) => s.part === "Evening");
+    expect(evening?.goodCount).toBe(5);
+    // Only round times are suggested
+    for (const slot of slots) expect(slot.hostWall.minute % 30).toBe(0);
   });
 
   it("returns nothing without participants", () => {
@@ -183,17 +180,18 @@ describe("suggestMeetingTimes", () => {
   });
 });
 
-describe("suggestMeetingTimes tiers", () => {
-  it("does not list weaker times next to one that suits everyone", () => {
-    // Bogota, Bangkok and Tokyo on 30 Sep 2026: only around 20:00 Bogota suits all three.
-    const slots = suggestMeetingTimes(
-      { year: 2026, month: 9, day: 30 },
-      "America/Bogota",
-      ["America/Bogota", "Asia/Bangkok", "Asia/Tokyo"],
-      60
-    );
-    expect(slots.length).toBeGreaterThan(0);
-    for (const slot of slots) expect(slot.goodCount).toBe(3);
+describe("time of day labels", () => {
+  it("names the part of the day", () => {
+    expect(dayPartOf(9)).toBe("Morning");
+    expect(dayPartOf(12)).toBe("Midday");
+    expect(dayPartOf(15)).toBe("Afternoon");
+    expect(dayPartOf(19)).toBe("Evening");
+    expect(timeOfDayLabel(3)).toBe("Night");
+    expect(timeOfDayLabel(6)).toBe("Early morning");
+    expect(timeOfDayLabel(8)).toBe("Morning");
+    expect(timeOfDayLabel(13)).toBe("Afternoon");
+    expect(timeOfDayLabel(19)).toBe("Evening");
+    expect(timeOfDayLabel(23)).toBe("Night");
   });
 });
 

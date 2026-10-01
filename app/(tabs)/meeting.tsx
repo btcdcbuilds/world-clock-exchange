@@ -8,6 +8,7 @@ import {
   TextInput,
   Share,
   Linking,
+  Modal,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
@@ -15,6 +16,7 @@ import { router, useFocusEffect } from "expo-router";
 import * as Haptics from "expo-haptics";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { MeetingShareCard } from "@/components/meeting-share-card";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import type { AppSettings, Timezone } from "@/lib/types";
@@ -26,6 +28,7 @@ import {
   dayDifference,
   findMeetingWindows,
   formatClock,
+  formatClockRange,
   formatOffset,
   formatWallDate,
   getDeviceTimeZone,
@@ -38,6 +41,7 @@ import {
   isWeekend,
   SLOT_STEP_MINUTES,
   suggestMeetingTimes,
+  timeOfDayLabel,
   zonedWallTimeToUtc,
   type HourStatus,
   type WallTime,
@@ -120,7 +124,8 @@ export default function MeetingScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [timelineWidth, setTimelineWidth] = useState(0);
 
-  const exportViewRef = useRef<View>(null);
+  const shareCardRef = useRef<View>(null);
+  const [shareOpen, setShareOpen] = useState(false);
   const timelineRef = useRef<ScrollView>(null);
   const dateScrollRef = useRef<ScrollView>(null);
   const dateScrollX = useRef(0);
@@ -268,7 +273,10 @@ export default function MeetingScreen() {
   // (or the next whole hour when nothing suits anyone).
   const placeTimeline = () => {
     if (timelinePlaced.current) return;
-    const best = suggestions[0];
+    // The suggestion that suits the most people (fewest at night first); earliest among equals.
+    const best = [...suggestions].sort(
+      (x, y) => x.nightCount - y.nightCount || y.goodCount - x.goodCount
+    )[0];
     const minutes = best ? best.hostWall.hour * 60 + best.hostWall.minute : startMinutes;
     const step = Math.round(minutes / SLOT_STEP_MINUTES);
     setStartMinutes(step * SLOT_STEP_MINUTES);
@@ -280,21 +288,20 @@ export default function MeetingScreen() {
   const summaryText = () => {
     const lines = [
       title.trim() || "Meeting",
-      `${formatWallDate(date, settings.dateFormat)} · ${formatDuration(duration)}`,
+      `${formatWallDate(date, settings.dateFormat)} ${date.year} · ${formatDuration(duration)}`,
       "",
       ...rows.map(
         (r) =>
-          `• ${r.city}: ${formatWallDate(r.localStart, settings.dateFormat)}, ${formatClock(
-            r.localStart.hour,
-            r.localStart.minute,
-            settings.timeFormat
-          )} – ${formatClock(r.localEnd.hour, r.localEnd.minute, settings.timeFormat)} (${r.offset})`
+          `${r.city}: ${formatClockRange(r.localStart, r.localEnd, settings.timeFormat)} (${formatWallDate(
+            r.localStart,
+            settings.dateFormat
+          )})`
       ),
     ];
     return lines.join("\n");
   };
 
-  const handleShare = async () => {
+  const handleShareText = async () => {
     tap();
     const message = summaryText();
     try {
@@ -338,13 +345,14 @@ export default function MeetingScreen() {
     }
   };
 
-  const handleExportImage = async () => {
+  const handleShareImage = async () => {
     tap();
     try {
       const { captureAndShareView } = await import("@/lib/export-utils");
-      await captureAndShareView(exportViewRef, "meeting-times.png");
+      await captureAndShareView(shareCardRef, "meeting-times.png");
     } catch (error) {
-      console.error("Export failed:", error);
+      console.error("Share image failed:", error);
+      showNotice("Couldn't make the image. Try Share as text.");
     }
   };
 
@@ -494,6 +502,25 @@ export default function MeetingScreen() {
           Plan a Meeting
         </Text>
 
+        {/* Title at the top, so the keyboard never covers it */}
+        <TextInput
+          value={title}
+          onChangeText={setTitle}
+          placeholder="Meeting title (optional)"
+          placeholderTextColor={colors.muted}
+          style={{
+            backgroundColor: colors.surface,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: colors.border,
+            paddingHorizontal: 14,
+            paddingVertical: 12,
+            fontSize: 16,
+            color: colors.foreground,
+            marginBottom: 12,
+          }}
+        />
+
         {/* Date */}
         <ScrollView
           ref={dateScrollRef}
@@ -584,7 +611,7 @@ export default function MeetingScreen() {
                 No time this day keeps anyone between 8am and 9pm. Try a shorter meeting or another day.
               </Text>
             ) : (
-              <ScrollView {...STRIP_SCROLL_PROPS}>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
                 {suggestions.map((s) => {
                   const minutes = s.hostWall.hour * 60 + s.hostWall.minute;
                   const selected = minutes === startMinutes;
@@ -598,10 +625,10 @@ export default function MeetingScreen() {
                       }}
                       activeOpacity={0.7}
                       style={{
+                        width: "48.5%",
                         paddingHorizontal: 14,
                         paddingVertical: 8,
                         borderRadius: 12,
-                        marginRight: 8,
                         borderWidth: 1,
                         borderColor: selected ? colors.primary : colors.border,
                         backgroundColor: selected ? `${colors.primary}22` : colors.surface,
@@ -613,18 +640,18 @@ export default function MeetingScreen() {
                       <Text
                         style={{ fontSize: 12, fontWeight: "600", color: everyone ? colors.success : colors.muted }}
                       >
-                        {everyone ? "Good for everyone" : `Good for ${s.goodCount} of ${participants.length}`}
+                        {s.part} · {everyone ? "everyone" : `${s.goodCount} of ${participants.length}`}
                       </Text>
                     </TouchableOpacity>
                   );
                 })}
-              </ScrollView>
+              </View>
             )}
           </View>
         )}
 
-        {/* Timeline: drag sideways to set the time. This card is also what "Share as image" saves. */}
-        <View ref={exportViewRef} collapsable={false} style={[card, { paddingHorizontal: 0, paddingBottom: 10 }]}>
+        {/* Timeline: drag sideways to set the time */}
+        <View style={[card, { paddingHorizontal: 0, paddingBottom: 10 }]}>
           <View
             style={{
               paddingHorizontal: 14,
@@ -780,39 +807,69 @@ export default function MeetingScreen() {
           </Text>
         </View>
 
-        {/* Title and actions */}
-        <TextInput
-          value={title}
-          onChangeText={setTitle}
-          placeholder="Meeting title (optional)"
-          placeholderTextColor={colors.muted}
-          style={{
-            backgroundColor: colors.surface,
-            borderRadius: 14,
-            borderWidth: 1,
-            borderColor: colors.border,
-            paddingHorizontal: 14,
-            paddingVertical: 12,
-            fontSize: 16,
-            color: colors.foreground,
-            marginBottom: 12,
-          }}
-        />
+        {/* Actions */}
         <View style={{ flexDirection: "row", gap: 10 }}>
-          <ActionButton icon="square.and.arrow.up" label="Share times" onPress={handleShare} primary colors={colors} />
+          <ActionButton
+            icon="square.and.arrow.up"
+            label="Share"
+            onPress={() => {
+              tap();
+              setShareOpen(true);
+            }}
+            primary
+            colors={colors}
+          />
           <ActionButton icon="calendar" label="Add to calendar" onPress={handleCalendar} colors={colors} />
         </View>
-        {Platform.OS !== "web" && (
-          <View style={{ marginTop: 10 }}>
-            <ActionButton icon="photo" label="Share as image" onPress={handleExportImage} colors={colors} />
-          </View>
-        )}
         {notice && (
           <Text style={{ textAlign: "center", color: colors.success, marginTop: 12, fontWeight: "600" }}>
             {notice}
           </Text>
         )}
       </ScrollView>
+
+      {/* Share preview: what you see is the image that is sent */}
+      <Modal visible={shareOpen} transparent animationType="fade" onRequestClose={() => setShareOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", padding: 16 }}>
+          <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}>
+            <MeetingShareCard
+              ref={shareCardRef}
+              title={title.trim() || "Meeting"}
+              dateLabel={`${formatWallDate(date, settings.dateFormat)}${settings.dateFormat === "YYYY-MM-DD" ? "" : ` ${date.year}`}`}
+              durationLabel={formatDuration(duration)}
+              rows={rows.map((r) => ({
+                key: r.key,
+                city: r.city,
+                timeRange: formatClockRange(r.localStart, r.localEnd, settings.timeFormat),
+                localDate: formatWallDate(r.localStart, settings.dateFormat),
+                dayShift: r.dayShift,
+                timeOfDay: timeOfDayLabel(r.localStart.hour),
+                status: r.status,
+              }))}
+            />
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
+              {Platform.OS !== "web" && (
+                <ActionButton icon="photo" label="Share image" onPress={handleShareImage} primary colors={colors} />
+              )}
+              <ActionButton icon="doc.text" label="Share as text" onPress={handleShareText} colors={colors} />
+            </View>
+            <TouchableOpacity
+              onPress={() => setShareOpen(false)}
+              accessibilityLabel="Close"
+              style={{
+                alignSelf: "center",
+                marginTop: 14,
+                paddingVertical: 10,
+                paddingHorizontal: 28,
+                borderRadius: 999,
+                backgroundColor: "rgba(255,255,255,0.18)",
+              }}
+            >
+              <Text style={{ color: "#FFFFFF", fontSize: 16, fontWeight: "700" }}>Close</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }
@@ -852,7 +909,7 @@ function ActionButton({
   primary,
   colors,
 }: {
-  icon: "square.and.arrow.up" | "calendar" | "photo";
+  icon: "square.and.arrow.up" | "calendar" | "photo" | "doc.text";
   label: string;
   onPress: () => void;
   primary?: boolean;

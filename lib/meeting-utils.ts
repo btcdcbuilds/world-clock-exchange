@@ -194,64 +194,81 @@ function scoreSlots(
   return slots;
 }
 
+export type DayPart = "Morning" | "Midday" | "Afternoon" | "Evening";
+
+/** Which part of the host's day a start time falls in, for grouping suggestions. */
+export function dayPartOf(hour: number): DayPart {
+  if (hour < 11) return "Morning";
+  if (hour < 14) return "Midday";
+  if (hour < 17) return "Afternoon";
+  return "Evening";
+}
+
+/** How a local clock time reads to the person there: "Morning", "Evening", "Night"… */
+export function timeOfDayLabel(hour: number): string {
+  if (hour < 5) return "Night";
+  if (hour < 8) return "Early morning";
+  if (hour < 12) return "Morning";
+  if (hour < 17) return "Afternoon";
+  if (hour < 22) return "Evening";
+  return "Night";
+}
+
 export interface SuggestedSlot {
   start: Date;
   hostWall: WallTime;
+  part: DayPart;
   goodCount: number;
   edgeCount: number;
   nightCount: number;
 }
 
+const DAY_PARTS: DayPart[] = ["Morning", "Midday", "Afternoon", "Evening"];
+
 /**
- * Up to `limit` start times on the host's day that suit everyone best, at least two hours
- * apart so they are real alternatives, earliest first. Only the best tier is returned, so a
- * time that suits everyone is never listed next to one that suits fewer people.
+ * The best start time in each part of the host's day (morning, midday, afternoon, evening),
+ * earliest first, so there is a real choice across the day.
  *
- * Fewest people at night comes first, then most people inside reasonable hours, then the
- * time closest to mid-afternoon for whoever is worst off. The host (the phone's own time
- * zone) is never offered a time at night, and at least one person must be inside reasonable hours.
+ * Within a part: fewest people at night first, then most people inside reasonable hours,
+ * then the time closest to mid-afternoon for whoever is worst off. The host (the phone's own
+ * time zone) is never offered a time at night, and at least one person must be inside
+ * reasonable hours. A part with no such time is left out.
  */
 export function suggestMeetingTimes(
   hostDate: Pick<WallTime, "year" | "month" | "day">,
   hostTimeZone: string,
   participantTimeZones: string[],
-  durationMinutes: number,
-  limit = 3
+  durationMinutes: number
 ): SuggestedSlot[] {
   const zones = Array.from(new Set(participantTimeZones));
   if (zones.length === 0) return [];
-  const ranked = scoreSlots(hostDate, hostTimeZone, zones, durationMinutes)
+  const candidates = scoreSlots(hostDate, hostTimeZone, zones, durationMinutes)
+    // Suggest round times only (on the hour or half hour); the timeline still allows any quarter.
+    .filter((s) => s.minutes % 30 === 0)
     .filter((s) => s.goodCount > 0)
     .filter((s) => {
       const end = new Date(s.start.getTime() + durationMinutes * 60000);
       return getMeetingStatus(s.start, end, hostTimeZone) !== "night";
-    })
-    .sort(
-      (a, b) =>
-        a.nightCount - b.nightCount ||
-        b.goodCount - a.goodCount ||
-        a.strain - b.strain ||
-        a.minutes - b.minutes
-    );
-  // Only offer the best tier: if some times suit everyone, never pad the list with worse ones.
-  const best = ranked[0];
-  const topTier = best
-    ? ranked.filter((s) => s.nightCount === best.nightCount && s.goodCount === best.goodCount)
-    : [];
-  const picked: SlotScore[] = [];
-  for (const slot of topTier) {
-    if (picked.length >= limit) break;
-    if (picked.every((p) => Math.abs(p.minutes - slot.minutes) >= 120)) picked.push(slot);
+    });
+  const better = (a: SlotScore, b: SlotScore) =>
+    a.nightCount - b.nightCount || b.goodCount - a.goodCount || a.strain - b.strain || a.minutes - b.minutes;
+
+  const picked: SuggestedSlot[] = [];
+  for (const part of DAY_PARTS) {
+    const inPart = candidates.filter((s) => dayPartOf(s.hostWall.hour) === part).sort(better);
+    const best = inPart[0];
+    if (best) {
+      picked.push({
+        start: best.start,
+        hostWall: best.hostWall,
+        part,
+        goodCount: best.goodCount,
+        edgeCount: best.edgeCount,
+        nightCount: best.nightCount,
+      });
+    }
   }
-  return picked
-    .sort((a, b) => a.minutes - b.minutes)
-    .map(({ start, hostWall, goodCount, edgeCount, nightCount }) => ({
-      start,
-      hostWall,
-      goodCount,
-      edgeCount,
-      nightCount,
-    }));
+  return picked;
 }
 
 /** A stretch of the host's day, in minutes after 00:00, that a meeting can sit anywhere inside. */
@@ -332,6 +349,18 @@ export function formatClock(hour: number, minute: number, format: "12h" | "24h")
   const suffix = hour < 12 ? "AM" : "PM";
   const h12 = hour % 12 === 0 ? 12 : hour % 12;
   return `${h12}:${mm} ${suffix}`;
+}
+
+/** "7:00 – 8:00 PM", "11:30 AM – 12:30 PM" or "19:00 – 20:00": the AM/PM is said once when both share it. */
+export function formatClockRange(
+  start: Pick<WallTime, "hour" | "minute">,
+  end: Pick<WallTime, "hour" | "minute">,
+  format: "12h" | "24h"
+): string {
+  const a = formatClock(start.hour, start.minute, format);
+  const b = formatClock(end.hour, end.minute, format);
+  if (format === "12h" && a.slice(-2) === b.slice(-2)) return `${a.slice(0, -3)} – ${b}`;
+  return `${a} – ${b}`;
 }
 
 /** "Mon, Oct 12" / "Mon 12 Oct" / "Mon 2026-10-12" depending on the user's date format */

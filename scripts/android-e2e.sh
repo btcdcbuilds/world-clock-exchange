@@ -126,8 +126,17 @@ drag() { local y; y=$(strip_y); [ -z "$y" ] && return 1; adb -s $D shell input s
 t11() { tap "Meeting" 2.5; has "^Plan a Meeting$" && has "^SUGGESTED TIMES$" && has "^You · " && has "^Bangkok$"; }
 check T11 "Meeting tab opens with suggestions and a timeline row for You and each city" t11
 
-t12() { s=$(labels | grep -E "^[0-9]{1,2}:[0-9]{2}( AM| PM)?, Good for" | head -1); a=$(you_time); DETAIL="first suggestion '${s%%,*}' → meeting starts $a"; [ -n "$s" ] && [ "${s%%,*}" = "$a" ]; }
-check T12 "Meeting opens on the best suggested time" t12
+# The suggestion that suits the most people: "everyone" first, else the highest "N of M"
+best_chip() { python -c "
+import sys,re
+best=None
+for line in sys.stdin.read().splitlines():
+    m=re.search(r'(\d+) of \d+$',line)
+    n=999 if line.endswith('everyone') else (int(m.group(1)) if m else -1)
+    if best is None or n>best[0]: best=(n,line)
+print(best[1] if best else '')"; }
+t12() { chips=$(labels | grep -E "^[0-9]{1,2}:[0-9]{2}( AM| PM)?, (Morning|Midday|Afternoon|Evening) · "); a=$(you_time); best=$(printf '%s\n' "$chips" | best_chip); DETAIL="suggestions: $(printf '%s' "$chips" | tr '\n' '|') → meeting starts $a"; [ "$(printf '%s\n' "$chips" | grep -c .)" -ge 2 ] && [ "${best%%,*}" = "$a" ]; }
+check T12 "Several suggestions across the day; the Meeting opens on the one that suits the most people" t12
 
 t13() { a=$(you_time); ra=$(all_times); drag 300 900; b=$(you_time); rb=$(all_times); m=$(mins "$b"); DETAIL="$a → $b"; [ -n "$b" ] && [ "$a" != "$b" ] && [ $((m % 15)) -eq 0 ] && [ "$ra" != "$rb" ]; }
 check T13 "Dragging the hours to the right moves the meeting earlier, snapped to 15 minutes, every city updates" t13
@@ -135,7 +144,7 @@ check T13 "Dragging the hours to the right moves the meeting earlier, snapped to
 t14() { a=$(you_time); drag 800 450; b=$(you_time); DETAIL="$a → $b"; [ -n "$b" ] && [ "$(mins "$b")" -gt "$(mins "$a")" ] && [ $(( $(mins "$b") % 15 )) -eq 0 ]; }
 check T14 "Dragging the hours to the left moves the meeting later, snapped to 15 minutes" t14
 
-t15() { s=$(labels | grep -E "^[0-9]{1,2}:[0-9]{2}( AM| PM)?, Good for" | head -1); tap "$(printf '%s' "$s" | sed 's/[.()+*?]/\\&/g')" 2; a=$(you_time); DETAIL="suggestion ${s%%,*} → start $a"; [ -n "$s" ] && [ "${s%%,*}" = "$a" ]; }
+t15() { s=$(labels | grep -E "^[0-9]{1,2}:[0-9]{2}( AM| PM)?, (Morning|Midday|Afternoon|Evening) · " | head -1); tap "$(printf '%s' "$s" | sed 's/[.()+*?]/\\&/g')" 2; a=$(you_time); DETAIL="suggestion ${s%%,*} → start $a"; [ -n "$s" ] && [ "${s%%,*}" = "$a" ]; }
 check T15 "Tapping a suggested time moves the meeting to it" t15
 
 t16() { cell=$(labels | grep -E "^You · .* [0-9]{1,2}:00( AM| PM)?$" | sed -n 2p); tap "$(printf '%s' "$cell" | sed 's/[.()+*?]/\\&/g')" 2; b=$(you_time); want=$(echo "$cell" | grep -oE "[0-9]{1,2}:00( AM| PM)?$"); DETAIL="cell '$cell' → start $b"; [ -n "$want" ] && [ "$b" = "$want" ]; }
@@ -153,21 +162,21 @@ check T19 "Meeting title can be typed and shows on the meeting card" t19
 t20() { top; tap "Add a city" 2 && has "^Add Timezone$" && { adb -s $D shell input keyevent 4; sleep 1.5; has "^Plan a Meeting$"; }; }
 check T20 "'Add a city' button on the meeting card opens Add Timezone" t20
 
-t21() { for i in 1 2 3; do down 400; done; tap "Share times" 3; has "^Sharing text$" && labels | grep -q "Board call" ; }
-check T21 "Share times opens the share sheet with the meeting text" t21
+t21() { for i in 1 2 3; do down 400; done; tap "Share" 2; has "^MEETING TIMES$" && has "^Board call$" && has "^Share image$" || { DETAIL="share preview did not open"; return 1; }; shot T21-share-preview; tap "Share as text" 3; has "^Sharing text$" && labels | grep -q "Board call" ; }
+check T21 "Share opens a preview card; Share as text opens the share sheet with the meeting text" t21
 
-t22() { adb -s $D shell input keyevent 4; sleep 1.5; tap "Add to calendar" 5; a=$(adb -s $D shell dumpsys activity activities | grep -m1 topResumedActivity); DETAIL=$(echo "$a" | grep -oE "[a-z]+(\.[a-z]+)+/" | head -1); echo "$a" | grep -qE "calendar|chrome|browser"; }
+t22() { adb -s $D shell input keyevent 4; sleep 1.5; has "^Share image$" && { tap "Close" 1.5; }; tap "Add to calendar" 5; a=$(adb -s $D shell dumpsys activity activities | grep -m1 topResumedActivity); DETAIL=$(echo "$a" | grep -oE "[a-z]+(\.[a-z]+)+/" | head -1); echo "$a" | grep -qE "calendar|chrome|browser"; }
 check T22 "Add to calendar hands off to Google Calendar / browser" t22
 
 fg() { adb -s $D shell dumpsys activity activities | grep -m1 topResumedActivity | grep -q "$PKG"; }
 t23() { for i in 1 2 3 4; do fg && break; adb -s $D shell input keyevent 4; sleep 1.5; done
   fg || { DETAIL="Calendar's first-run screen kept Back; returned with the app icon"; adb -s $D shell monkey -p $PKG -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1; sleep 3; }
   fg || { DETAIL="could not return to the app"; return 1; }
-  has "^Board call$|^Share as image$" || { DETAIL="app returned but Meeting state was lost"; return 1; }
-  has "^Share as image$" || { for i in 1 2 3 4; do down 400; done; }; tap "Share as image" 5; has "^Sharing image$"; }
-check T23 "Returning from Calendar keeps the Meeting as it was; Share as image opens the share sheet" t23
+  has "^Board call$|^Share$" || { DETAIL="app returned but Meeting state was lost"; return 1; }
+  has "^Share$" || { for i in 1 2 3 4; do down 400; done; }; tap "Share" 2; tap "Share image" 5; has "^Sharing image$"; }
+check T23 "Returning from Calendar keeps the Meeting as it was; Share image (from the preview) opens the share sheet" t23
 
-t24() { adb -s $D shell input keyevent 4; sleep 1.5; fg || adb -s $D shell monkey -p $PKG -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1; sleep 1; tap "Meeting" 1.5; top
+t24() { adb -s $D shell input keyevent 4; sleep 1.5; has "^Share image$" && adb -s $D shell input keyevent 4 && sleep 1; fg || adb -s $D shell monkey -p $PKG -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1; sleep 1; tap "Meeting" 1.5; top
   # Fast fling back to the start of the date strip, then tap a chip straight away
   y=$(xy "Today, .*" | cut -d' ' -f2); adb -s $D shell input swipe 900 $y 200 $y 120; sleep 0.3; adb -s $D shell input swipe 200 $y 1000 $y 80; sleep 0.2
   p=$(labels | grep -E "^[A-Z][a-z]{2}, [0-9]{1,2}, [A-Z][a-z]{2}$" | sed -n 2p); tap "$p" 1.5; a=$(header); d=$(echo "$p" | cut -d, -f2 | tr -d ' '); DETAIL="tapped '$p' → $a"; echo "$a" | grep -q " $d 20"; }
