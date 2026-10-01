@@ -1,0 +1,42 @@
+id	result	check	detail
+T01	PASS	App opens from launcher without crashing, World Clock screen shows	
+T02	PASS	First launch shows the empty state with a hint to tap +	
+T03	PASS	+ button opens Add Timezone	
+T04	PASS	Back arrow on Add Timezone returns to World Clock	
+T05	PASS	Search without accents ('sao') finds São Paulo	
+T06	PASS	First tap on a result (keyboard open) adds the city and returns	
+T07	PASS	Clear (x) button empties the search and shows the full list	
+T08	PASS	Picking a city already on the list does not add a duplicate	Tokyo rows after adding it twice: 1
+T08b	PASS	Each city shows its time, date and exchange rate against USD	rows with a rate: 3 of 3
+T08c	PASS	Time zones tab lists named zones; searching 'mst' offers both Mountain Time and Arizona's MST	
+T08d	PASS	Adding a time zone by its short name (HKT) puts it on World Clock with its currency	
+T09	PASS	Pull down to refresh works	
+T10	PASS	Long-press → Cancel keeps the city	
+T11	PASS	Meeting tab opens with suggestions and a timeline row for You and each city	
+T12	PASS	Meeting opens on the best suggested time	first suggestion '7:00 AM' → meeting starts 7:00 AM
+T13	PASS	Dragging the hours to the right moves the meeting earlier, snapped to 15 minutes, every city updates	7:00 AM → 3:45 AM
+T14	PASS	Dragging the hours to the left moves the meeting later, snapped to 15 minutes	3:45 AM → 5:30 AM
+T15	PASS	Tapping a suggested time moves the meeting to it	suggestion 7:00 AM → start 7:00 AM
+T16	PASS	Tapping an hour in the timeline moves the meeting to that hour	cell 'You · Bogota 6:00 AM' → start 6:00 AM
+T17	PASS	Tapping a date chip selects that date	tapped 'Sat, 3, Oct' → Sat, Oct 3 2026 · 1h · Weekend
+T18	PASS	Duration chips change the meeting length	
+T19	PASS	Meeting title can be typed and shows on the meeting card	
+T20	PASS	'Add a city' button on the meeting card opens Add Timezone	
+T21	PASS	Share times opens the share sheet with the meeting text	
+T22	PASS	Add to calendar hands off to Google Calendar / browser	com.google.android.calendar/
+T23	PASS	Returning from Calendar keeps the Meeting as it was; Share as image opens the share sheet	
+T24	PASS	Date chips still respond to the first tap right after a fast swipe to the strip edge	tapped 'Fri, 2, Oct' → Fri, Oct 2 2026 · 1h
+T25	PASS	Removing a city on World Clock removes its Meeting row without crashing	rows: 6:00 AM – 7:00 AM|8:00 AM – 9:00 AM|8:00 PM – 9:00 PM|7:00 PM – 8:00 PM|
+T26	PASS	Base currency EUR applies on World Clock	
+T27	PASS	Every other base currency (GBP JPY CNY HKD USD) applies	
+T28	PASS	24 Hour time format applies	
+T29	PASS	12 Hour time format applies	
+T30	PASS	All three date formats apply	
+T30b	PASS	Settings 'Check for updates' asks Expo's update service and reports the answer	You have the latest version.
+T31	PASS	Dark and Light themes apply	brightness dark=96 light=735
+T32	PASS	Auto theme follows the phone's dark / light setting	system dark=96 system light=735
+T33	PASS	Cities and settings survive closing and reopening the app	
+T34	PASS	Deleting every city shows the empty state	
+T35	PASS	Meeting with no cities shows its empty state and an Add a city button	
+T36	PASS	Add a city from the empty Meeting screen works	
+T37	PASS	No crash recorded in the Android crash log during the whole run	
